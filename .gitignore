@@ -1,0 +1,5 @@
+*.log
+VPN-Share-Diagnostics-*.txt
+*.zip
+.DS_Store
+Thumbs.db
