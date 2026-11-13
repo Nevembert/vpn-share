@@ -107,7 +107,75 @@ function AutoSuggest($all) {
   return $proposal
 }
 
-function BuildStatus {
+
+function PublicIpProbe {
+  $result = @{ ip=$null; status='unavailable'; checkedAt=(Get-Date).ToString('HH:mm:ss'); note='External IP reflects the host routing at test time; not proof of client VPN.' }
+  try {
+    $request = [Net.HttpWebRequest]::Create('https://api.ipify.org?format=text')
+    $request.Method = 'GET'; $request.Timeout = 4500; $request.ReadWriteTimeout = 4500
+    $request.UserAgent = 'VPNShare/1.5'
+    $response = $request.GetResponse()
+    try {
+      $reader = New-Object IO.StreamReader($response.GetResponseStream())
+      $ip = $reader.ReadToEnd().Trim()
+      $parsed = $null
+      if ([Net.IPAddress]::TryParse($ip,[ref]$parsed)) { $result.ip=$ip; $result.status='ok' }
+    } finally { $response.Close() }
+  } catch { $result.note='IP probe failed: '+$_.Exception.Message }
+  return $result
+}
+$script:lastIpProbe = $null
+$script:lastIpProbeAt = [datetime]::MinValue
+function CachedPublicIp {
+  if (((Get-Date) - $script:lastIpProbeAt).TotalSeconds -ge 60 -or -not $script:lastIpProbe) {
+    $script:lastIpProbeAt = Get-Date
+    $script:lastIpProbe = PublicIpProbe
+  }
+  return $script:lastIpProbe
+}
+function HotspotAddress {
+  $all = @(Adapters)
+  $c = Chosen $all 'hotspot'
+  if (-not $c -or $c.status -ne 'Up') { return $null }
+  $addresses = @(Get-NetIPAddress -InterfaceIndex $c.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -match '^192\.168\.' -or $_.IPAddress -match '^10\.' -or $_.IPAddress -match '^172\.(1[6-9]|2[0-9]|3[01])\.' })
+  if ($addresses.Count -eq 0) { return $null }
+  return [string]$addresses[0].IPAddress
+}
+function ClientHtml {
+return @'
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VPN Share — проверка клиента</title>
+<style>body{margin:0;background:#0a1020;color:#ecf3ff;font:16px/1.55 system-ui,Segoe UI,sans-serif}main{max-width:640px;margin:35px auto;padding:24px}section{background:#152238;border:1px solid #2b3c56;border-radius:18px;padding:24px}h1{margin:0 0 10px}p{color:#b6c8e1}button{padding:12px 17px;border:0;border-radius:10px;background:#43dea3;color:#06231a;font-weight:700;cursor:pointer}a{color:#9cc4ff}.value{font-size:26px;font-weight:700;word-break:break-word}small{color:#a5b7cf}</style></head>
+<body><main><section><h1>Проверка устройства</h1><p>Эта страница открыта через Wi-Fi хот-спот ноутбука. Она не изменяет настройки Windows.</p><p>Внешний IPv4 устройства</p><div id="ip" class="value">Не проверен</div><button id="test">Проверить IP</button><p id="result">Для проверки нужен доступ в интернет и разрешённые запросы к api.ipify.org.</p><p><a href="https://www.dnsleaktest.com/" target="_blank" rel="noopener">Проверить DNS</a> · <a href="https://test-ipv6.com/" target="_blank" rel="noopener">Проверить IPv6</a></p><small>Внешний IP не доказывает, что весь трафик проходит через VPN. Эта страница не отправляет результаты на ноутбук и не подтверждает шестой узел автоматически.</small></section></main>
+<script>document.getElementById('test').onclick=async()=>{const el=document.getElementById('ip');el.textContent='Проверяем…';try{const c=new AbortController();const timer=setTimeout(()=>c.abort(),7000);let r;try{r=await fetch('https://api.ipify.org?format=json',{signal:c.signal,cache:'no-store'})}finally{clearTimeout(timer)}if(!r.ok)throw Error('HTTP '+r.status);const d=await r.json();el.textContent=d.ip||'Нет IP';document.getElementById('result').textContent='Это публичный IP, видимый внешнему сервису с данного устройства.'}catch(e){el.textContent='Ошибка проверки';document.getElementById('result').textContent=e.message}}</script></body></html>
+'@
+}
+function ClientResponse($context) {
+  $context.Response.Headers['Cache-Control']='no-store'
+  $context.Response.Headers['X-Content-Type-Options']='nosniff'
+  $context.Response.Headers['Content-Security-Policy']="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://api.ipify.org"
+  Respond $context 200 (ClientHtml) 'text/html; charset=utf-8'
+}
+function StartClientListener {
+  $ip = HotspotAddress
+  if (-not $ip) { throw 'Hotspot IPv4 address not found. Enable hotspot and select Wi-Fi Direct.' }
+  if ($script:clientListener) {
+    if ($script:clientIp -eq $ip) { return ('http://'+$ip+':18782/') }
+    try { $script:clientListener.Stop(); $script:clientListener.Close() } catch {}
+  }
+  $server = New-Object Net.HttpListener
+  $server.Prefixes.Add(('http://'+$ip+':18782/'))
+  $server.Start()
+  $script:clientListener=$server; $script:clientIp=$ip
+  Log ('Client read-only diagnostic listener started on '+$ip)
+  return ('http://'+$ip+':18782/')
+}
+function StopClientListener {
+  if ($script:clientListener) { try { $script:clientListener.Stop(); $script:clientListener.Close() } catch {} }
+  $script:clientListener=$null;$script:clientIp=$null
+}
+
   $all = @(Adapters)
   $a = Chosen $all 'input'; $b = Chosen $all 'vpn'; $c = Chosen $all 'hotspot'
   $roles = @(Roles)
@@ -141,6 +209,8 @@ function BuildStatus {
   if ($internet -and $vpn -and $hotspot -and $ics) { $diagnostics += 'Local network configuration looks ready. Verify VPN externally on each client.' }
   $traffic = @{ internet=(TrafficSample $a); vpn=(TrafficSample $b); hotspot=(TrafficSample $c) }
   return @{
+    publicIp = $script:lastIpProbe
+    clientPage = $(if ($script:clientListener -and $script:clientListener.IsListening) { 'http://'+$script:clientIp+':18782/' } else { $null })
     faults = $faults
     traffic = $traffic
     timestamp = (Get-Date).ToString('HH:mm:ss')
@@ -234,7 +304,7 @@ main{max-width:1160px;margin:auto;padding:30px 22px 55px}header{display:flex;jus
 <section class="card wide"><h2>Маршрут подключения</h2><div class="path" id="path"></div><div class="metrics"><div class="metric"><b id="count">—</b><span>Наблюдаемых устройств*</span></div><div class="metric"><b id="ready">—</b><span>Локальных этапов готово</span></div><div class="metric"><b id="time">—</b><span>Последняя проверка</span></div></div><div class="hint">* Число определяется по IPv4-соседям в таблице Windows. Это <b>оценка, а не точное число подключённых клиентов</b>. Последний этап «VPN на устройстве» нельзя подтвердить с ноутбука: проверьте IP, DNS и IPv6 на Quest 3 или другом клиенте.</div></section>
 <section class="card"><h2>Выбор интерфейсов</h2><label for="input">01 · Входящий интернет — USB или Wi-Fi</label><select id="input"></select><label for="vpn">02 · VPN / TUN — источник ICS</label><select id="vpn"></select><label for="hotspot">03 · Wi-Fi Direct — получатель ICS</label><select id="hotspot"></select><div class="buttons"><button id="detect">Найти автоматически</button><button id="save">Сохранить выбор</button><button id="configure" class="primary">Настроить ICS</button><button id="refresh">Обновить</button></div><div class="hint">Кнопка «Настроить ICS» меняет системный общий доступ. Если уже есть другая настройка ICS, приложение попросит подтверждение.</div></section>
 <section class="card wide"><h2>Скорость передачи по трём участкам</h2><div class="metrics" id="speeds"><div class="metric">Загрузка…</div></div><div class="hint">Это текущая нагрузка на сетевые интерфейсы Windows (получено / отправлено, Мбит/с), <b>не</b> максимальная скорость интернета. Входящий канал, VPN и Wi-Fi Direct могут учитывать один и тот же трафик, поэтому значения не складываются. Первая выборка после запуска не содержит скорости.</div></section><section class="card"><h2>Диагностика</h2><div id="faults"></div><div id="alerts"></div><h2 style="margin-top:24px">Подключённые IP (наблюдаемые)</h2><div id="clients" class="hint">Нет данных</div><div class="buttons"><button id="settings">Настройки хот-спота</button><button id="connections">Сетевые подключения</button></div></section>
-<section class="card wide"><h2>История скоростей</h2><p>Последние 5 минут, входящий поток ↓ каждого интерфейса. График строится локально в браузере.</p><div style="overflow:auto"><svg id="history" viewBox="0 0 900 220" style="width:100%;min-width:440px;background:#0a1324;border:1px solid var(--line);border-radius:12px" aria-label="График истории скорости"></svg></div><div class="buttons"><button id="clearHistory">Очистить график</button><button id="exportHistory">Экспорт CSV</button></div><div class="hint">История хранится только в текущей вкладке и не отправляется в облако. При закрытии вкладки она исчезает.</div></section><section class="card wide"><h2>Как включить ICS</h2><ol class="steps"><li>Подключите интернет к ноутбуку по USB или Wi-Fi. Запустите Happ / Hub VPN в режиме <b>TUN</b>.</li><li>Откройте <b>Параметры Windows → Сеть и Интернет → Мобильный хот-спот</b> и включите раздачу по Wi-Fi.</li><li>Выберите выше входящий адаптер, VPN TUN и Microsoft Wi-Fi Direct. Нажмите <b>Сохранить выбор</b>, затем <b>Настроить ICS</b>.</li><li>Если автоматическая настройка не работает: откройте <b>Сетевые подключения</b> → правой кнопкой по VPN TUN → <b>Свойства → Доступ</b> → разрешите общий доступ → выберите <b>Wi-Fi Direct</b> → ОК.</li><li>Подключите Quest 3 к хот-споту и проверьте внешний IP на <a href="https://2ip.ru" target="_blank" rel="noopener">2ip.ru</a>. Дополнительно проверьте DNS и IPv6. Зеленые этапы означают только локальные проверки.</li></ol><div class="hint">Для ручного открытия окна адаптеров: <b>Win + R → ncpa.cpl</b>. Для хот-спота: <b>Win + I → Сеть и Интернет → Мобильный хот-спот</b>.</div><h2 style="margin-top:20px">Журнал</h2><pre id="log">Запуск…</pre></section>
+<section class="card wide"><h2>Проверка внешнего IP и устройства</h2><div class="metrics"><div class="metric"><b id="publicIp" style="font-size:20px">—</b><span>Публичный IP ноутбука (по маршруту ОС)</span></div><div class="metric"><b id="clientPageStatus" style="font-size:16px">Выключена</b><span>Страница проверки Quest 3</span></div><div class="metric"><b id="clientPageAddress" style="font-size:14px;word-break:break-word">—</b><span>Адрес страницы на Quest</span></div></div><div class="buttons"><button id="checkIp">Проверить внешний IP</button><button id="enableClient">Включить страницу Quest</button><button id="disableClient">Выключить страницу</button></div><div class="hint">Проверка IP выполняет HTTPS-запрос к api.ipify.org. Страница Quest открывается <b>только после нажатия кнопки</b> на IP хот-спота, порт 18782, и не содержит административных функций. Если Windows Firewall блокирует порт, потребуется отдельное правило только для локального интерфейса хот-спота. Никакие правила автоматически не меняются. Сравнение IP и проверка DNS/IPv6 выполняются вручную.</div></section><section class="card wide"><h2>История скоростей</h2><p>Последние 5 минут, входящий поток ↓ каждого интерфейса. График строится локально в браузере.</p><div style="overflow:auto"><svg id="history" viewBox="0 0 900 220" style="width:100%;min-width:440px;background:#0a1324;border:1px solid var(--line);border-radius:12px" aria-label="График истории скорости"></svg></div><div class="buttons"><button id="clearHistory">Очистить график</button><button id="exportHistory">Экспорт CSV</button></div><div class="hint">История хранится только в текущей вкладке и не отправляется в облако. При закрытии вкладки она исчезает.</div></section><section class="card wide"><h2>Как включить ICS</h2><ol class="steps"><li>Подключите интернет к ноутбуку по USB или Wi-Fi. Запустите Happ / Hub VPN в режиме <b>TUN</b>.</li><li>Откройте <b>Параметры Windows → Сеть и Интернет → Мобильный хот-спот</b> и включите раздачу по Wi-Fi.</li><li>Выберите выше входящий адаптер, VPN TUN и Microsoft Wi-Fi Direct. Нажмите <b>Сохранить выбор</b>, затем <b>Настроить ICS</b>.</li><li>Если автоматическая настройка не работает: откройте <b>Сетевые подключения</b> → правой кнопкой по VPN TUN → <b>Свойства → Доступ</b> → разрешите общий доступ → выберите <b>Wi-Fi Direct</b> → ОК.</li><li>Подключите Quest 3 к хот-споту и проверьте внешний IP на <a href="https://2ip.ru" target="_blank" rel="noopener">2ip.ru</a>. Дополнительно проверьте DNS и IPv6. Зеленые этапы означают только локальные проверки.</li></ol><div class="hint">Для ручного открытия окна адаптеров: <b>Win + R → ncpa.cpl</b>. Для хот-спота: <b>Win + I → Сеть и Интернет → Мобильный хот-спот</b>.</div><h2 style="margin-top:20px">Журнал</h2><pre id="log">Запуск…</pre></section>
 </div><footer>VPN Share · локальный веб-интерфейс доступен только на 127.0.0.1 · Без облака и внешнего сервера · MIT</footer></main>
 <script>
 const token='__TOKEN__'; let last=null, loading=false, history=[]; const $=id=>document.getElementById(id);
@@ -271,9 +341,13 @@ $('exportHistory').onclick=()=>{
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='vpn-share-traffic.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
 };
 
-function render(d){last=d;$('clock').textContent='● Обновлено '+d.timestamp;$('time').textContent=d.timestamp;$('count').textContent=d.observedClientCount+' ≈';const good=['internet','vpn','hotspot','ics','clientObserved'].filter(k=>d.states[k]).length;$('ready').textContent=good+' / 5';$('path').innerHTML=stages.map(([key,title,sub,ico],i)=>{const ok=d.states[key],unknown=key==='clientVpnVerified';return '<div class="stage '+(unknown?'unknown':ok?'ok':'bad')+'"><div class="dot">'+ico+'</div><strong>'+title+'</strong><small>'+(unknown?'Не подтверждено':ok?'● '+sub:'○ Нет сигнала')+'</small></div>'}).join('');$('faults').replaceChildren();for(const f of d.faults||[]){const div=document.createElement('div');div.className='alert';div.textContent=f.title+': '+f.action;$('faults').append(div)}$('alerts').replaceChildren();for(const m of d.diagnostics){const div=document.createElement('div');div.className='alert'+(m.startsWith('Local network')?' good':'');div.textContent=m;$('alerts').append(div)}const names=[['internet','Входящий интернет'],['vpn','VPN TUN'],['hotspot','Раздача Wi-Fi Direct']];$('speeds').replaceChildren();for(const [key,title] of names){const x=d.traffic?.[key];const div=document.createElement('div');div.className='metric';const h=document.createElement('b');h.textContent=x?.available?(x.rxMbps.toFixed(2)+' ↓ / '+x.txMbps.toFixed(2)+' ↑'):'—';h.style.fontSize='18px';const sub=document.createElement('span');sub.textContent=title+' · Мбит/с';div.append(h,sub);$('speeds').append(div)}$('clients').textContent=d.clients.length?d.clients.map(c=>c.ip+' · '+c.state).join(' · '):'Устройства пока не обнаружены';}
+function render(d){last=d;$('clock').textContent='● Обновлено '+d.timestamp;$('publicIp').textContent=d.publicIp?.ip||'Не проверен';$('clientPageStatus').textContent=d.clientPage?'Активна':'Выключена';$('clientPageAddress').textContent=d.clientPage||'—';$('time').textContent=d.timestamp;$('count').textContent=d.observedClientCount+' ≈';const good=['internet','vpn','hotspot','ics','clientObserved'].filter(k=>d.states[k]).length;$('ready').textContent=good+' / 5';$('path').innerHTML=stages.map(([key,title,sub,ico],i)=>{const ok=d.states[key],unknown=key==='clientVpnVerified';return '<div class="stage '+(unknown?'unknown':ok?'ok':'bad')+'"><div class="dot">'+ico+'</div><strong>'+title+'</strong><small>'+(unknown?'Не подтверждено':ok?'● '+sub:'○ Нет сигнала')+'</small></div>'}).join('');$('faults').replaceChildren();for(const f of d.faults||[]){const div=document.createElement('div');div.className='alert';div.textContent=f.title+': '+f.action;$('faults').append(div)}$('alerts').replaceChildren();for(const m of d.diagnostics){const div=document.createElement('div');div.className='alert'+(m.startsWith('Local network')?' good':'');div.textContent=m;$('alerts').append(div)}const names=[['internet','Входящий интернет'],['vpn','VPN TUN'],['hotspot','Раздача Wi-Fi Direct']];$('speeds').replaceChildren();for(const [key,title] of names){const x=d.traffic?.[key];const div=document.createElement('div');div.className='metric';const h=document.createElement('b');h.textContent=x?.available?(x.rxMbps.toFixed(2)+' ↓ / '+x.txMbps.toFixed(2)+' ↑'):'—';h.style.fontSize='18px';const sub=document.createElement('span');sub.textContent=title+' · Мбит/с';div.append(h,sub);$('speeds').append(div)}$('clients').textContent=d.clients.length?d.clients.map(c=>c.ip+' · '+c.state).join(' · '):'Устройства пока не обнаружены';}
 async function refresh(reselect=false){if(loading)return;loading=true;try{const d=await api('/api/status');if(reselect||!last)updateSelectors(d);render(d);addHistory(d)}catch(e){$('clock').textContent='Ошибка связи';addLog(e.message)}finally{loading=false}}
 $('refresh').onclick=()=>refresh(true);
+$('checkIp').onclick=async()=>{try{const d=await api('/api/public-ip',{});addLog('Внешний IP: '+(d.ip||d.note));await refresh()}catch(e){addLog('IP: '+e.message)}};
+$('enableClient').onclick=async()=>{if(!confirm('Открыть только страницу диагностики на IP хот-спота? Доступ к ней могут получить устройства в этой сети.'))return;try{const d=await api('/api/client-start',{});addLog('Адрес для Quest: '+d.url);await refresh()}catch(e){addLog('Страница Quest: '+e.message)}};
+$('disableClient').onclick=async()=>{try{await api('/api/client-stop',{});addLog('Страница Quest выключена');await refresh()}catch(e){addLog(e.message)}};
+
 $('detect').onclick=async()=>{try{const p=await api('/api/suggest');for(const k of ['input','vpn','hotspot']){if(p[k])$(k).value=p[k]}addLog(p.ambiguous.length?'Автопоиск: '+p.ambiguous.join(' '):'Все три интерфейса определены. Проверьте выбор и нажмите «Сохранить выбор».')}catch(e){addLog('Автопоиск: '+e.message)}};
 $('save').onclick=async()=>{try{const data=await api('/api/select',{input:$('input').value,vpn:$('vpn').value,hotspot:$('hotspot').value});addLog(data.message);await refresh()}catch(e){addLog('Ошибка: '+e.message)}};
 $('configure').onclick=async()=>{if(!confirm('Настроить Windows ICS: VPN → Wi-Fi Direct? Существующий общий доступ может быть изменён.'))return;try{const data=await api('/api/configure',{});addLog(data.message);await refresh()}catch(e){addLog('ICS: '+e.message)}};
@@ -300,7 +374,24 @@ Log ('Dashboard: ' + $url)
 Start-Process $url
 try {
   while ($listener.IsListening) {
-    $ctx = $listener.GetContext()
+    if ($script:clientListener -and $script:clientListener.IsListening) {
+      try {
+        $pending = $script:clientListener.BeginGetContext($null,$null)
+        $waiting = $null
+        try {
+          $waiting = $listener.BeginGetContext($null,$null)
+          while (-not $waiting.IsCompleted -and -not $pending.IsCompleted) { Start-Sleep -Milliseconds 80 }
+          if ($pending.IsCompleted) {
+            $remote = $script:clientListener.EndGetContext($pending)
+            if ($remote.Request.HttpMethod -eq 'GET' -and $remote.Request.Url.AbsolutePath -eq '/') { ClientResponse $remote }
+            else { Respond $remote 404 'Not found' 'text/plain; charset=utf-8' }
+          }
+          if (-not $waiting.IsCompleted) { $waiting.AsyncWaitHandle.WaitOne(200) | Out-Null }
+          if ($waiting.IsCompleted) { $ctx = $listener.EndGetContext($waiting) }
+          else { continue }
+        } finally { if ($waiting) { $waiting.AsyncWaitHandle.Close() };$pending.AsyncWaitHandle.Close() }
+      } catch { Log ('Client listener: '+$_.Exception.Message); continue }
+    } else { $ctx = $listener.GetContext() }
     try {
       if (-not [Net.IPAddress]::IsLoopback($ctx.Request.RemoteEndPoint.Address)) {
         Respond $ctx 403 (Json @{error='Local connections only'}) 'application/json; charset=utf-8'
@@ -323,13 +414,29 @@ try {
         Respond $ctx 200 (Json (BuildStatus)) 'application/json; charset=utf-8'
         continue
       }
-      if ($ctx.Request.HttpMethod -eq 'POST' -and $path -in @('/api/select','/api/configure','/api/open-hotspot','/api/open-connections')) {
+      if ($ctx.Request.HttpMethod -eq 'POST' -and $path -in @('/api/select','/api/configure','/api/open-hotspot','/api/open-connections','/api/public-ip','/api/client-start','/api/client-stop')) {
         if ($ctx.Request.ContentLength64 -gt 8192) { throw 'Request too large.' }
         $body = ''
         if ($ctx.Request.HasEntityBody) {
           $reader = New-Object IO.StreamReader($ctx.Request.InputStream,[Text.Encoding]::UTF8)
           $body = $reader.ReadToEnd()
           $reader.Dispose()
+        }
+        if ($path -eq '/api/public-ip') {
+          $script:lastIpProbe = PublicIpProbe
+          $script:lastIpProbeAt = Get-Date
+          Respond $ctx 200 (Json $script:lastIpProbe) 'application/json; charset=utf-8'
+          continue
+        }
+        if ($path -eq '/api/client-start') {
+          $clientUrl = StartClientListener
+          Respond $ctx 200 (Json @{url=$clientUrl}) 'application/json; charset=utf-8'
+          continue
+        }
+        if ($path -eq '/api/client-stop') {
+          StopClientListener
+          Respond $ctx 200 (Json @{message='Client page stopped'}) 'application/json; charset=utf-8'
+          continue
         }
         if ($path -eq '/api/select') { $message = SaveSelection ($body | ConvertFrom-Json) }
         elseif ($path -eq '/api/configure') { $message = Configure }
