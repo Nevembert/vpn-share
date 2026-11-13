@@ -50,6 +50,12 @@ function Chosen($all,$key) {
   $id = [string]$script:selection[$key]
   return @($all | Where-Object { $_.id -eq $id } | Select-Object -First 1)[0]
 }
+function IncomingReady($adapter) {
+  if (-not $adapter -or $adapter.status -ne 'Up') { return $false }
+  $ip = @(Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -notmatch '^(169\.254\.|127\.)' })
+  return ($ip.Count -gt 0)
+}
 function RoutesOn($adapter) {
   if (-not $adapter) { return $false }
   return @(Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
@@ -91,6 +97,10 @@ function AutoSuggest($all) {
   $vpnCandidates = @($all | Where-Object { $_.vpnCandidate -and $_.status -eq 'Up' -and (RoutesOn $_) })
   $hotspotCandidates = @($all | Where-Object { $_.hotspotCandidate -and $_.status -eq 'Up' })
   $proposal = @{input='';vpn='';hotspot='';ambiguous=@()}
+  if (-not $internet) {
+    $physical = @($all | Where-Object { $_.status -eq 'Up' -and -not $_.vpnCandidate -and -not $_.hotspotCandidate -and (IncomingReady $_) })
+    if ($physical.Count -eq 1) { $internet=$physical[0] }
+  }
   if ($internet) { $proposal.input=$internet.id } else { $proposal.ambiguous+= 'Incoming internet adapter not determined.' }
   if ($vpnCandidates.Count -eq 1) { $proposal.vpn=$vpnCandidates[0].id } else { $proposal.ambiguous+= 'VPN adapter: zero or multiple candidates.' }
   if ($hotspotCandidates.Count -eq 1) { $proposal.hotspot=$hotspotCandidates[0].id } else { $proposal.ambiguous+= 'Hotspot adapter: zero or multiple candidates.' }
@@ -106,7 +116,7 @@ function BuildStatus {
     $ics = (@($roles | Where-Object { $_.id -eq $b.id -and $_.shared -and $_.kind -eq 0 }).Count -gt 0) -and
            (@($roles | Where-Object { $_.id -eq $c.id -and $_.shared -and $_.kind -eq 1 }).Count -gt 0)
   }
-  $internet = [bool]($a -and $a.status -eq 'Up' -and (RoutesOn $a))
+  $internet = [bool](IncomingReady $a)
   $vpn = [bool]($b -and $b.status -eq 'Up' -and (RoutesOn $b))
   $hotspot = [bool]($c -and $c.status -eq 'Up')
   $neighbors = @()
@@ -118,7 +128,7 @@ function BuildStatus {
   $diagnostics = @()
   $faults = @()
   if (-not $a) { $diagnostics += 'Choose the incoming internet adapter.' }
-  elseif (-not $internet) { $diagnostics += 'Incoming adapter has no active IPv4 default route.' }
+  elseif (-not $internet) { $diagnostics += 'Incoming adapter is down or has no usable IPv4 address. This does not prove internet reachability.' }
   if (-not $b) { $diagnostics += 'Choose the VPN TUN adapter.' }
   elseif (-not $vpn) { $diagnostics += 'VPN adapter is down or has no default/split-default IPv4 routes.' }
   if (-not $c) { $diagnostics += 'Turn on Windows Mobile hotspot, then choose Wi-Fi Direct.' }
