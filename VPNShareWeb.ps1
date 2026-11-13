@@ -373,25 +373,29 @@ $url = ('http://127.0.0.1:{0}/' -f $port)
 Log ('Dashboard: ' + $url)
 Start-Process $url
 try {
+  $mainPending = $null
+  $clientPending = $null
   while ($listener.IsListening) {
-    if ($script:clientListener -and $script:clientListener.IsListening) {
+    if (-not $mainPending) { $mainPending = $listener.GetContextAsync() }
+    if ($script:clientListener -and $script:clientListener.IsListening -and -not $clientPending) {
+      $clientPending = $script:clientListener.GetContextAsync()
+    }
+    $tasks = @($mainPending)
+    if ($clientPending) { $tasks += $clientPending }
+    [void][Threading.Tasks.Task]::WaitAny([Threading.Tasks.Task[]]$tasks,500)
+    if ($clientPending -and $clientPending.IsCompleted) {
       try {
-        $pending = $script:clientListener.BeginGetContext($null,$null)
-        $waiting = $null
-        try {
-          $waiting = $listener.BeginGetContext($null,$null)
-          while (-not $waiting.IsCompleted -and -not $pending.IsCompleted) { Start-Sleep -Milliseconds 80 }
-          if ($pending.IsCompleted) {
-            $remote = $script:clientListener.EndGetContext($pending)
-            if ($remote.Request.HttpMethod -eq 'GET' -and $remote.Request.Url.AbsolutePath -eq '/') { ClientResponse $remote }
-            else { Respond $remote 404 'Not found' 'text/plain; charset=utf-8' }
-          }
-          if (-not $waiting.IsCompleted) { $waiting.AsyncWaitHandle.WaitOne(200) | Out-Null }
-          if ($waiting.IsCompleted) { $ctx = $listener.EndGetContext($waiting) }
-          else { continue }
-        } finally { if ($waiting) { $waiting.AsyncWaitHandle.Close() };$pending.AsyncWaitHandle.Close() }
-      } catch { Log ('Client listener: '+$_.Exception.Message); continue }
-    } else { $ctx = $listener.GetContext() }
+        if (-not $clientPending.IsFaulted -and -not $clientPending.IsCanceled) {
+          $remote = $clientPending.Result
+          if ($remote.Request.HttpMethod -eq 'GET' -and $remote.Request.Url.AbsolutePath -eq '/') { ClientResponse $remote }
+          else { Respond $remote 404 'Not found' 'text/plain; charset=utf-8' }
+        }
+      } catch { Log ('Client page error: '+$_.Exception.Message) }
+      $clientPending = $null
+    }
+    if (-not $mainPending.IsCompleted) { continue }
+    try { $ctx = $mainPending.Result } catch { Log ('Dashboard listener error: '+$_.Exception.Message); break }
+    $mainPending = $null
     try {
       if (-not [Net.IPAddress]::IsLoopback($ctx.Request.RemoteEndPoint.Address)) {
         Respond $ctx 403 (Json @{error='Local connections only'}) 'application/json; charset=utf-8'
@@ -452,4 +456,4 @@ try {
       try { Respond $ctx 500 (Json @{error=$message}) 'application/json; charset=utf-8' } catch {}
     }
   }
-} finally { $listener.Stop(); $listener.Close() }
+} finally { StopClientListener; $listener.Stop(); $listener.Close() }
