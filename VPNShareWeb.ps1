@@ -97,7 +97,7 @@ function Configure {
   $all = @(Adapters)
   $a = Chosen $all 'input'; $b = Chosen $all 'vpn'; $c = Chosen $all 'hotspot'
   if (-not $a -or -not $b -or -not $c) { throw 'Select all three adapters first.' }
-  if (@($a.id,$b.id,$c.id | Select-Object -Unique).Count -ne 3) { throw 'All three adapters must be different.' }
+  if (@(@($a.id,$b.id,$c.id) | Select-Object -Unique).Count -ne 3) { throw 'All three adapters must be different.' }
   if (-not $b.vpnCandidate -or -not $c.hotspotCandidate) { throw 'VPN must be a TUN/TAP adapter and hotspot must be Wi-Fi Direct.' }
   if ($b.status -ne 'Up' -or $c.status -ne 'Up' -or -not (RoutesOn $b)) { throw 'VPN TUN and hotspot must be active; VPN needs IPv4 routes.' }
   $roles = @(Roles)
