@@ -55,6 +55,48 @@ function RoutesOn($adapter) {
   return @(Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.DestinationPrefix -in @('0.0.0.0/0','0.0.0.0/1','128.0.0.0/1') }).Count -gt 0
 }
+
+# Traffic sampling uses Windows interface byte counters. This is NOT a speed test.
+$script:trafficSamples = @{}
+function TrafficSample($adapter) {
+  $empty = @{ rxMbps=$null; txMbps=$null; available=$false; label='No sample yet' }
+  if (-not $adapter -or $adapter.status -ne 'Up') { return $empty }
+  try {
+    $stats = Get-NetAdapterStatistics -Name $adapter.name -ErrorAction Stop
+    $now = [DateTime]::UtcNow
+    $key = [string]$adapter.id
+    $rx = [double]$stats.ReceivedBytes
+    $tx = [double]$stats.SentBytes
+    $prev = $script:trafficSamples[$key]
+    $script:trafficSamples[$key] = @{ at=$now; rx=$rx; tx=$tx }
+    if (-not $prev) { return $empty }
+    $seconds = ($now - $prev.at).TotalSeconds
+    if ($seconds -le 0.5 -or $seconds -gt 60 -or $rx -lt $prev.rx -or $tx -lt $prev.tx) { return $empty }
+    return @{
+      rxMbps=[math]::Round((($rx-$prev.rx)*8/1000000)/$seconds,2)
+      txMbps=[math]::Round((($tx-$prev.tx)*8/1000000)/$seconds,2)
+      available=$true
+      label='Interface throughput, not an internet speed test'
+    }
+  } catch { return @{rxMbps=$null;txMbps=$null;available=$false;label='Adapter counters unavailable'} }
+}
+function AutoSuggest($all) {
+  $routes = @(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object DestinationPrefix -eq '0.0.0.0/0' | Sort-Object RouteMetric)
+  $internet = $null
+  foreach ($route in $routes) {
+    $match = @($all | Where-Object { $_.ifIndex -eq $route.InterfaceIndex -and $_.status -eq 'Up' -and -not $_.vpnCandidate -and -not $_.hotspotCandidate })
+    if ($match.Count -eq 1) { $internet = $match[0]; break }
+  }
+  $vpnCandidates = @($all | Where-Object { $_.vpnCandidate -and $_.status -eq 'Up' -and (RoutesOn $_) })
+  $hotspotCandidates = @($all | Where-Object { $_.hotspotCandidate -and $_.status -eq 'Up' })
+  $proposal = @{input='';vpn='';hotspot='';ambiguous=@()}
+  if ($internet) { $proposal.input=$internet.id } else { $proposal.ambiguous+= 'Incoming internet adapter not determined.' }
+  if ($vpnCandidates.Count -eq 1) { $proposal.vpn=$vpnCandidates[0].id } else { $proposal.ambiguous+= 'VPN adapter: zero or multiple candidates.' }
+  if ($hotspotCandidates.Count -eq 1) { $proposal.hotspot=$hotspotCandidates[0].id } else { $proposal.ambiguous+= 'Hotspot adapter: zero or multiple candidates.' }
+  return $proposal
+}
+
 function BuildStatus {
   $all = @(Adapters)
   $a = Chosen $all 'input'; $b = Chosen $all 'vpn'; $c = Chosen $all 'hotspot'
@@ -82,7 +124,9 @@ function BuildStatus {
   elseif (-not $hotspot) { $diagnostics += 'Wi-Fi Direct adapter is not Up. Enable Mobile hotspot.' }
   if ($b -and $c -and -not $ics) { $diagnostics += 'ICS is not mapped from VPN to Wi-Fi Direct.' }
   if ($internet -and $vpn -and $hotspot -and $ics) { $diagnostics += 'Local network configuration looks ready. Verify VPN externally on each client.' }
+  $traffic = @{ internet=(TrafficSample $a); vpn=(TrafficSample $b); hotspot=(TrafficSample $c) }
   return @{
+    traffic = $traffic
     timestamp = (Get-Date).ToString('HH:mm:ss')
     adapters = $all; selection = $script:selection
     states = @{ internet=$internet; vpn=$vpn; hotspot=$hotspot; ics=[bool]$ics; clientObserved=($neighbors.Count -gt 0); clientVpnVerified=$false }
@@ -172,8 +216,8 @@ main{max-width:1160px;margin:auto;padding:30px 22px 55px}header{display:flex;jus
 <header><div><div class="eyebrow">Windows 11 · Local dashboard</div><h1>VPN Share <span style="color:var(--green)">●</span></h1><p>Наглядный маршрут интернета через VPN и точку доступа</p></div><div class="badge" id="clock">Подключение…</div></header>
 <div class="layout">
 <section class="card wide"><h2>Маршрут подключения</h2><div class="path" id="path"></div><div class="metrics"><div class="metric"><b id="count">—</b><span>Наблюдаемых устройств*</span></div><div class="metric"><b id="ready">—</b><span>Локальных этапов готово</span></div><div class="metric"><b id="time">—</b><span>Последняя проверка</span></div></div><div class="hint">* Число определяется по IPv4-соседям в таблице Windows. Это <b>оценка, а не точное число подключённых клиентов</b>. Последний этап «VPN на устройстве» нельзя подтвердить с ноутбука: проверьте IP, DNS и IPv6 на Quest 3 или другом клиенте.</div></section>
-<section class="card"><h2>Выбор интерфейсов</h2><label for="input">01 · Входящий интернет — USB или Wi-Fi</label><select id="input"></select><label for="vpn">02 · VPN / TUN — источник ICS</label><select id="vpn"></select><label for="hotspot">03 · Wi-Fi Direct — получатель ICS</label><select id="hotspot"></select><div class="buttons"><button id="save">Сохранить выбор</button><button id="configure" class="primary">Настроить ICS</button><button id="refresh">Обновить</button></div><div class="hint">Кнопка «Настроить ICS» меняет системный общий доступ. Если уже есть другая настройка ICS, приложение попросит подтверждение.</div></section>
-<section class="card"><h2>Диагностика</h2><div id="alerts"></div><h2 style="margin-top:24px">Подключённые IP (наблюдаемые)</h2><div id="clients" class="hint">Нет данных</div><div class="buttons"><button id="settings">Настройки хот-спота</button><button id="connections">Сетевые подключения</button></div></section>
+<section class="card"><h2>Выбор интерфейсов</h2><label for="input">01 · Входящий интернет — USB или Wi-Fi</label><select id="input"></select><label for="vpn">02 · VPN / TUN — источник ICS</label><select id="vpn"></select><label for="hotspot">03 · Wi-Fi Direct — получатель ICS</label><select id="hotspot"></select><div class="buttons"><button id="detect">Найти автоматически</button><button id="save">Сохранить выбор</button><button id="configure" class="primary">Настроить ICS</button><button id="refresh">Обновить</button></div><div class="hint">Кнопка «Настроить ICS» меняет системный общий доступ. Если уже есть другая настройка ICS, приложение попросит подтверждение.</div></section>
+<section class="card wide"><h2>Скорость передачи по трём участкам</h2><div class="metrics" id="speeds"><div class="metric">Загрузка…</div></div><div class="hint">Это текущая нагрузка на сетевые интерфейсы Windows (получено / отправлено, Мбит/с), <b>не</b> максимальная скорость интернета. Входящий канал, VPN и Wi-Fi Direct могут учитывать один и тот же трафик, поэтому значения не складываются. Первая выборка после запуска не содержит скорости.</div></section><section class="card"><h2>Диагностика</h2><div id="alerts"></div><h2 style="margin-top:24px">Подключённые IP (наблюдаемые)</h2><div id="clients" class="hint">Нет данных</div><div class="buttons"><button id="settings">Настройки хот-спота</button><button id="connections">Сетевые подключения</button></div></section>
 <section class="card wide"><h2>Как включить ICS</h2><ol class="steps"><li>Подключите интернет к ноутбуку по USB или Wi-Fi. Запустите Happ / Hub VPN в режиме <b>TUN</b>.</li><li>Откройте <b>Параметры Windows → Сеть и Интернет → Мобильный хот-спот</b> и включите раздачу по Wi-Fi.</li><li>Выберите выше входящий адаптер, VPN TUN и Microsoft Wi-Fi Direct. Нажмите <b>Сохранить выбор</b>, затем <b>Настроить ICS</b>.</li><li>Если автоматическая настройка не работает: откройте <b>Сетевые подключения</b> → правой кнопкой по VPN TUN → <b>Свойства → Доступ</b> → разрешите общий доступ → выберите <b>Wi-Fi Direct</b> → ОК.</li><li>Подключите Quest 3 к хот-споту и проверьте внешний IP на <a href="https://2ip.ru" target="_blank" rel="noopener">2ip.ru</a>. Дополнительно проверьте DNS и IPv6. Зеленые этапы означают только локальные проверки.</li></ol><div class="hint">Для ручного открытия окна адаптеров: <b>Win + R → ncpa.cpl</b>. Для хот-спота: <b>Win + I → Сеть и Интернет → Мобильный хот-спот</b>.</div><h2 style="margin-top:20px">Журнал</h2><pre id="log">Запуск…</pre></section>
 </div><footer>VPN Share · локальный веб-интерфейс доступен только на 127.0.0.1 · Без облака и внешнего сервера · MIT</footer></main>
 <script>
@@ -182,9 +226,10 @@ const stages=[['internet','Интернет','Входящий канал','⇩'
 function addLog(s){$('log').textContent=new Date().toLocaleTimeString()+' · '+s+'\n'+$('log').textContent.slice(0,4000)}
 async function api(path,body){const opts={headers:{'X-VPN-Share-Token':token}};if(body!==undefined){opts.method='POST';opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body)}const r=await fetch(path,opts);const data=await r.json();if(!r.ok)throw Error(data.error||'HTTP '+r.status);return data}
 function updateSelectors(d){for(const key of ['input','vpn','hotspot']){const el=$(key);const current=el.value||d.selection[key]||'';const candidates=d.adapters.filter(a=>key==='input'?true:key==='vpn'?a.vpnCandidate:a.hotspotCandidate);el.replaceChildren();const empty=document.createElement('option');empty.value='';empty.textContent='— Выберите адаптер —';el.append(empty);for(const a of candidates){const o=document.createElement('option');o.value=a.id;o.textContent=a.name+' · '+a.description+' ['+a.status+']';el.append(o)}el.value=candidates.some(a=>a.id===current)?current:''}}
-function render(d){last=d;$('clock').textContent='● Обновлено '+d.timestamp;$('time').textContent=d.timestamp;$('count').textContent=d.observedClientCount+' ≈';const good=['internet','vpn','hotspot','ics','clientObserved'].filter(k=>d.states[k]).length;$('ready').textContent=good+' / 5';$('path').innerHTML=stages.map(([key,title,sub,ico],i)=>{const ok=d.states[key],unknown=key==='clientVpnVerified';return '<div class="stage '+(unknown?'unknown':ok?'ok':'bad')+'"><div class="dot">'+ico+'</div><strong>'+title+'</strong><small>'+(unknown?'Не подтверждено':ok?'● '+sub:'○ Нет сигнала')+'</small></div>'}).join('');$('alerts').replaceChildren();for(const m of d.diagnostics){const div=document.createElement('div');div.className='alert'+(m.startsWith('Local network')?' good':'');div.textContent=m;$('alerts').append(div)}$('clients').textContent=d.clients.length?d.clients.map(c=>c.ip+' · '+c.state).join(' · '):'Устройства пока не обнаружены';}
+function render(d){last=d;$('clock').textContent='● Обновлено '+d.timestamp;$('time').textContent=d.timestamp;$('count').textContent=d.observedClientCount+' ≈';const good=['internet','vpn','hotspot','ics','clientObserved'].filter(k=>d.states[k]).length;$('ready').textContent=good+' / 5';$('path').innerHTML=stages.map(([key,title,sub,ico],i)=>{const ok=d.states[key],unknown=key==='clientVpnVerified';return '<div class="stage '+(unknown?'unknown':ok?'ok':'bad')+'"><div class="dot">'+ico+'</div><strong>'+title+'</strong><small>'+(unknown?'Не подтверждено':ok?'● '+sub:'○ Нет сигнала')+'</small></div>'}).join('');$('alerts').replaceChildren();for(const m of d.diagnostics){const div=document.createElement('div');div.className='alert'+(m.startsWith('Local network')?' good':'');div.textContent=m;$('alerts').append(div)}const names=[['internet','Входящий интернет'],['vpn','VPN TUN'],['hotspot','Раздача Wi-Fi Direct']];$('speeds').replaceChildren();for(const [key,title] of names){const x=d.traffic?.[key];const div=document.createElement('div');div.className='metric';const h=document.createElement('b');h.textContent=x?.available?(x.rxMbps.toFixed(2)+' ↓ / '+x.txMbps.toFixed(2)+' ↑'):'—';h.style.fontSize='18px';const sub=document.createElement('span');sub.textContent=title+' · Мбит/с';div.append(h,sub);$('speeds').append(div)}$('clients').textContent=d.clients.length?d.clients.map(c=>c.ip+' · '+c.state).join(' · '):'Устройства пока не обнаружены';}
 async function refresh(reselect=false){if(loading)return;loading=true;try{const d=await api('/api/status');if(reselect||!last)updateSelectors(d);render(d)}catch(e){$('clock').textContent='Ошибка связи';addLog(e.message)}finally{loading=false}}
 $('refresh').onclick=()=>refresh(true);
+$('detect').onclick=async()=>{try{const p=await api('/api/suggest');for(const k of ['input','vpn','hotspot']){if(p[k])$(k).value=p[k]}addLog(p.ambiguous.length?'Автопоиск: '+p.ambiguous.join(' '):'Все три интерфейса определены. Проверьте выбор и нажмите «Сохранить выбор».')}catch(e){addLog('Автопоиск: '+e.message)}};
 $('save').onclick=async()=>{try{const data=await api('/api/select',{input:$('input').value,vpn:$('vpn').value,hotspot:$('hotspot').value});addLog(data.message);await refresh()}catch(e){addLog('Ошибка: '+e.message)}};
 $('configure').onclick=async()=>{if(!confirm('Настроить Windows ICS: VPN → Wi-Fi Direct? Существующий общий доступ может быть изменён.'))return;try{const data=await api('/api/configure',{});addLog(data.message);await refresh()}catch(e){addLog('ICS: '+e.message)}};
 $('settings').onclick=async()=>{try{addLog((await api('/api/open-hotspot',{})).message)}catch(e){addLog(e.message)}};
@@ -223,6 +268,10 @@ try {
       }
       if ($ctx.Request.Headers['X-VPN-Share-Token'] -ne $script:token) {
         Respond $ctx 403 (Json @{error='Invalid session token'}) 'application/json; charset=utf-8'
+        continue
+      }
+      if ($ctx.Request.HttpMethod -eq 'GET' -and $path -eq '/api/suggest') {
+        Respond $ctx 200 (Json (AutoSuggest @(Adapters))) 'application/json; charset=utf-8'
         continue
       }
       if ($ctx.Request.HttpMethod -eq 'GET' -and $path -eq '/api/status') {
