@@ -130,8 +130,8 @@ function Diagnose {
     Say ('Diagnostics saved: ' + $path)
 }
 $form = New-Object Windows.Forms.Form
-$form.Text = 'VPN Share | Windows 11 | v1.0'
-$form.Size = New-Object Drawing.Size(870,680)
+$form.Text = 'VPN Share | Windows 11 | v1.1'
+$form.Size = New-Object Drawing.Size(870,825)
 $form.StartPosition = 'CenterScreen'
 $form.Font = New-Object Drawing.Font('Segoe UI',10)
 function LabelAt($text,$y) {
@@ -167,12 +167,103 @@ $script:hotBox=ComboAt 285
 ButtonAt 'Check configuration' 20 330 195 { Check-Plan }
 ButtonAt 'Configure ICS' 230 330 195 { Configure-ICS }
 ButtonAt 'Save diagnostics' 440 330 195 { Diagnose }
-LabelAt 'Log (contains local adapter names; review before sharing):' 385
+function Update-Status {
+    $states = @(
+        @{Label='Internet'; State='NO'; Good=$false},
+        @{Label='VPN TUN'; State='NO'; Good=$false},
+        @{Label='Hotspot'; State='NO'; Good=$false},
+        @{Label='ICS'; State='NO'; Good=$false},
+        @{Label='Client'; State='UNKNOWN'; Good=$false},
+        @{Label='Client VPN'; State='NOT VERIFIED'; Good=$false}
+    )
+    try {
+        $p = Pick $script:inputBox $script:inputs
+        if ($p) {
+            $live = Get-NetAdapter -InterfaceIndex $p.ifIndex -ErrorAction SilentlyContinue
+            $routes = @(Get-NetRoute -InterfaceIndex $p.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object DestinationPrefix -eq '0.0.0.0/0')
+            if ($live.Status -eq 'Up' -and $routes.Count) { $states[0].State='UP / ROUTE'; $states[0].Good=$true }
+        }
+        $v = Pick $script:vpnBox $script:vpns
+        if ($v) {
+            $live = Get-NetAdapter -InterfaceIndex $v.ifIndex -ErrorAction SilentlyContinue
+            $routes = @(Get-NetRoute -InterfaceIndex $v.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.DestinationPrefix -in @('0.0.0.0/0','0.0.0.0/1','128.0.0.0/1') })
+            if ($live.Status -eq 'Up' -and $routes.Count) { $states[1].State='TUN + ROUTES'; $states[1].Good=$true }
+        }
+        $h = Pick $script:hotBox $script:hotspots
+        if ($h) {
+            $live = Get-NetAdapter -InterfaceIndex $h.ifIndex -ErrorAction SilentlyContinue
+            if ($live.Status -eq 'Up') { $states[2].State='UP'; $states[2].Good=$true }
+        }
+        if ($v -and $h) {
+            $roles = @(Sharing)
+            if ((Current-Role $roles $v.InterfaceGuid 0) -and (Current-Role $roles $h.InterfaceGuid 1)) {
+                $states[3].State='VPN -> HOTSPOT'; $states[3].Good=$true
+            }
+        }
+        if ($h -and $states[2].Good) {
+            $neighbors = @(Get-NetNeighbor -InterfaceIndex $h.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object { $_.State -in @('Reachable','Stale','Delay','Probe') -and $_.IPAddress -notmatch '^(224\\.|239\\.|255\\.|0\\.)' })
+            if ($neighbors.Count) { $states[4].State='NEIGHBOR SEEN (' + $neighbors.Count + ')'; $states[4].Good=$true }
+            else { $states[4].State='NOT DETECTED' }
+        }
+    } catch {
+        $states[5].State='NOT VERIFIED'
+    }
+    for ($i=0; $i -lt $states.Count; $i++) {
+        $script:statusLabels[$i].Text = ('{0}: {1}' -f $states[$i].Label,$states[$i].State)
+        $script:statusLabels[$i].ForeColor = if ($states[$i].Good) { [Drawing.Color]::DarkGreen } else { [Drawing.Color]::DarkRed }
+    }
+    $script:statusLabels[5].ForeColor=[Drawing.Color]::DarkOrange
+}
+function Show-Guide {
+    $guide = @'
+ICS means Internet Connection Sharing (Windows network sharing).
+
+1. Connect the internet via USB tethering or Wi-Fi.
+2. Connect your VPN in TUN mode.
+3. Click "Windows hotspot settings" and turn Mobile hotspot ON.
+4. Click "Refresh adapters" and select A=internet, B=VPN TUN, C=Wi-Fi Direct.
+5. Click "Configure ICS" (one-click automatic setup).
+6. Check the green ICS indicator.
+
+If automatic ICS setup fails:
+- Click "Network connections" (or press Win+R and enter ncpa.cpl).
+- Right-click the VPN TUN adapter (B), choose Properties -> Sharing.
+- Enable "Allow other network users to connect through this computer's Internet connection".
+- Choose the Wi-Fi Direct adapter (C) as Home networking connection.
+- Click OK, then "Check configuration".
+
+"VPN TUN" green means the adapter and routes are present, NOT that a server works.
+"Client" green means a network neighbor was observed, NOT confirmed internet access.
+"Client VPN" stays NOT VERIFIED: Windows cannot prove client-side VPN routing.
+Check external IP, DNS and IPv6 on the connected device.
+'@
+    [void][Windows.Forms.MessageBox]::Show($guide,'VPN Share - ICS guide','OK','Information')
+}
+ButtonAt 'ICS guide / manual steps' 650 330 180 { Show-Guide }
+LabelAt 'Connection indicators (auto refresh every 5 seconds):' 385
+$script:statusLabels = @()
+for ($i=0; $i -lt 6; $i++) {
+    $label=New-Object Windows.Forms.Label
+    $col=$i % 3
+    $r=[math]::Floor($i/3)
+    $label.Location=New-Object Drawing.Point((20+270*$col),(415+32*$r))
+    $label.Size=New-Object Drawing.Size(260,26)
+    $label.Text='Checking...'
+    $form.Controls.Add($label)
+    $script:statusLabels += $label
+}
+LabelAt 'Log (contains local adapter names; review before sharing):' 488
 $script:output=New-Object Windows.Forms.TextBox
-$script:output.Location=New-Object Drawing.Point(20,420)
-$script:output.Size=New-Object Drawing.Size(810,175)
+$script:output.Location=New-Object Drawing.Point(20,520)
+$script:output.Size=New-Object Drawing.Size(810,195)
 $script:output.Multiline=$true; $script:output.ReadOnly=$true; $script:output.ScrollBars='Vertical'
 $form.Controls.Add($script:output)
-LabelAt 'Warning: test external IP, DNS, IPv6 and VPN-off behavior on the connected device.' 603
-try { Refresh-List } catch { Say ('Startup error: ' + $_.Exception.Message) }
+LabelAt 'Green = local check passed. Client VPN cannot be verified automatically; check on client.' 730
+try { Refresh-List; Update-Status } catch { Say ('Startup error: ' + $_.Exception.Message) }
+$script:statusTimer = New-Object Windows.Forms.Timer
+$script:statusTimer.Interval=5000
+$script:statusTimer.Add_Tick({ Update-Status })
+$script:statusTimer.Start()
+$form.Add_FormClosed({ $script:statusTimer.Stop(); $script:statusTimer.Dispose() })
 [void]$form.ShowDialog()
