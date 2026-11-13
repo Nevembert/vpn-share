@@ -11,4 +11,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: PowerShell and JavaScript smoke checks
         shell: powershell
-        run: .\tests\Smoke.ps1
+        run: ./tests/Smoke.ps1
