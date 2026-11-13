@@ -15,7 +15,7 @@ if ($errors.Count -gt 0) {
 }
 Write-Host 'PASS: PowerShell syntax' -ForegroundColor Green
 $functions = @($ast.FindAll({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst]},$true) | ForEach-Object Name)
-foreach ($required in @('Adapters','Roles','Chosen','RoutesOn','BuildStatus','Configure','SaveSelection','TrafficSample','ClientResponse','ClientReport','StartClientListener','StopClientListener')) {
+foreach ($required in @('Adapters','Roles','Chosen','RoutesOn','BuildStatus','Configure','SaveSelection','TrafficSample','ClientResponse','ClientReport','StartClientListener','StopClientListener','SetKeepAwake','RefreshKeepAwake')) {
   if ($required -notin $functions) { throw ('Missing function: ' + $required) }
 }
 Write-Host 'PASS: required PowerShell functions exist' -ForegroundColor Green
@@ -29,7 +29,7 @@ Write-Host 'PASS: expected local dashboard and client listener guards present' -
 $match = [regex]::Match($code,'(?s)\$script:html\s*=\s*@''\r?\n(.*?)\r?\n''@')
 if (-not $match.Success) { throw 'Dashboard HTML here-string not found' }
 $html = $match.Groups[1].Value
-foreach ($id in @('path','speeds','speedTests','history','comparison','checkIp','enableClient','disableClient')) {
+foreach ($id in @('path','speeds','speedTests','history','comparison','checkIp','enableClient','disableClient','awakeOn','awakeOff','awakeStatus')) {
   if ($html -notmatch ('id="' + [regex]::Escape($id) + '"')) { throw ('Missing dashboard element: ' + $id) }
 }
 Write-Host 'PASS: expected dashboard elements exist' -ForegroundColor Green
