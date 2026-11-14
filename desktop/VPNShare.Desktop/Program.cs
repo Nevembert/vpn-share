@@ -104,7 +104,7 @@ internal sealed class DashboardForm : Form
         Height = 840;
         MinimumSize = new Size(780, 520);
         StartPosition = FormStartPosition.CenterScreen;
-        Icon = SystemIcons.Application;
+        Icon = BrandIcon.Create();
         BackColor = Color.FromArgb(11, 20, 35);
 
         _dataDirectory = Path.Combine(
@@ -159,7 +159,7 @@ internal sealed class DashboardForm : Form
 
         _tray = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = Icon,
             Text = "VPN Share — фоновая раздача",
             ContextMenuStrip = menu,
             Visible = true
