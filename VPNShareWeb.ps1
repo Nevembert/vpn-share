@@ -355,10 +355,17 @@ function Configure {
   }
 }
 # Opt-in ICS recovery: never alter third-party sharing assignments automatically.
+$script:preferencesPath = Join-Path $env:LOCALAPPDATA 'VPNShare\preferences.json'
 $script:autoRepair = $false
+if (Test-Path -LiteralPath $script:preferencesPath) {
+  try {
+    $prefs = Get-Content -LiteralPath $script:preferencesPath -Raw | ConvertFrom-Json
+    $script:autoRepair = ($prefs.autoHotspot -eq $true)
+  } catch { Log ('Preferences could not be loaded: ' + $_.Exception.Message) }
+}
 $script:autoRepairLast = [datetime]::MinValue
 $script:autoRepairFailures = 0
-$script:autoRepairNote = 'Автовосстановление выключено.'
+$script:autoRepairNote = $(if ($script:autoRepair) { 'Автозапуск ICS при появлении VPN и хот-спота включён.' } else { 'Автовосстановление выключено.' })
 function AutoRepairTick {
   if (-not $script:autoRepair) { return }
   $now = Get-Date
