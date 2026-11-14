@@ -169,7 +169,15 @@ internal sealed class ClientTrafficMonitor : IDisposable
                 token.WaitHandle.WaitOne(3000);
                 return;
             }
-            if (_subnetMask == null)\n            {\n                _state = "waiting";\n                _detail = "Не удалось определить IPv4-подсеть Wi-Fi Direct.";\n                WriteSnapshot(1);\n                token.WaitHandle.WaitOne(3000);\n                return;\n            }\n            _state = "capturing";
+            if (_subnetMask == null)
+            {
+                _state = "waiting";
+                _detail = "Не удалось определить IPv4-подсеть Wi-Fi Direct.";
+                WriteSnapshot(1);
+                token.WaitHandle.WaitOne(3000);
+                return;
+            }
+            _state = "capturing";
             _detail = "Npcap: учёт IPv4-пакетов на Wi-Fi Direct до NAT. Скорость приблизительная.";
             _log("[capture] Started on " + device);
             last = DateTime.UtcNow;
