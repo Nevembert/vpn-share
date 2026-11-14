@@ -258,7 +258,7 @@ internal sealed class DashboardForm : Form
                 var identity = WindowsIdentity.GetCurrent().Name;
                 var code = RunTaskCommand("/create", "/f", "/tn", StartupTask,
                     "/sc", "onlogon", "/ru", identity, "/rl", "highest", "/it",
-                    "/tr", "\\\"" + exe + "\\\"");
+                    "/tr", "\"" + exe + "\"");
                 if (code != 0) throw new InvalidOperationException("Не удалось создать задачу автозапуска (код " + code + ").");
             }
             else if (RunTaskCommand("/query", "/tn", StartupTask) == 0)
