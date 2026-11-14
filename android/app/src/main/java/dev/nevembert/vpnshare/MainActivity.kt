@@ -22,12 +22,13 @@ class MainActivity : ComponentActivity() {
                 var page by remember { mutableStateOf(0) }
                 var rootProbe by remember { mutableStateOf<RootProbe?>(null) }
                 var snapshot by remember { mutableStateOf(Diagnostics.collect(this, false)) }
-                fun refresh() { snapshot = Diagnostics.collect(this, rootMode) }
+                var inventory by remember { mutableStateOf(NetworkInspector.collect(this)) }
+                fun refresh() { snapshot = Diagnostics.collect(this, rootMode); inventory = NetworkInspector.collect(this) }
                 Column(Modifier.fillMaxSize().padding(16.dp)) {
                     Text("VPN Share", style = MaterialTheme.typography.headlineMedium)
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Обзор", "Диагностика", "Настройки").forEachIndexed { index, label ->
+                        listOf("Обзор", "Диагностика", "Сеть", "Настройки").forEachIndexed { index, label ->
                             FilterChip(selected = page == index, onClick = { page = index }, label = { Text(label) })
                         }
                     }
@@ -58,6 +59,25 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
+                            }
+                            2 -> {
+                                Text("Интерфейсы Android", style = MaterialTheme.typography.titleLarge)
+                                inventory.interfaces.forEach { item ->
+                                    ElevatedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                        Column(Modifier.padding(12.dp)) {
+                                            Text(item.name + if (item.up) " · UP" else " · DOWN")
+                                            Text(item.addresses.joinToString(", ").ifBlank { "IP-адресов не обнаружено" })
+                                            if (item.isVpnCandidate) Text("Возможный VPN-интерфейс")
+                                            if (item.isHotspotCandidate) Text("Возможный интерфейс Wi-Fi/точки доступа")
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Text("Маршруты (публичный Android API)", style = MaterialTheme.typography.titleMedium)
+                                if (inventory.routes.isEmpty()) Text("Доступные маршруты не обнаружены")
+                                inventory.routes.forEach { Text(it, Modifier.padding(vertical = 4.dp)) }
+                                Spacer(Modifier.height(12.dp))
+                                inventory.observations.forEach { Text(it) }
                             }
                             else -> {
                                 Text("Возможности", style = MaterialTheme.typography.titleLarge)
