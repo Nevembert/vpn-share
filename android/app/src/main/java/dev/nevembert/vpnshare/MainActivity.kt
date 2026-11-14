@@ -20,6 +20,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 var rootMode by remember { mutableStateOf(false) }
                 var page by remember { mutableStateOf(0) }
+                var rootProbe by remember { mutableStateOf<RootProbe?>(null) }
                 var snapshot by remember { mutableStateOf(Diagnostics.collect(this, false)) }
                 fun refresh() { snapshot = Diagnostics.collect(this, rootMode) }
                 Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -61,7 +62,17 @@ class MainActivity : ComponentActivity() {
                             else -> {
                                 Text("Возможности", style = MaterialTheme.typography.titleLarge)
                                 Row { Text("Root-режим (экспериментальный)", Modifier.weight(1f)); Switch(checked = rootMode, onCheckedChange = { rootMode = it; refresh() }) }
-                                Text("В этом релизе root не запрашивается, маршруты и правила файрвола не меняются.")
+                                Text("Root запрашивается только при нажатии кнопки проверки. Маршруты и правила файрвола не меняются.")
+                                if (rootMode) {
+                                    Spacer(Modifier.height(12.dp))
+                                    Button(onClick = {
+                                        Thread {
+                                            val result = RootInspector.probe()
+                                            runOnUiThread { rootProbe = result }
+                                        }.start()
+                                    }) { Text("Проверить root-доступ (только чтение)") }
+                                    rootProbe?.let { Text("Root: ${it.status} — ${it.output}") }
+                                }
                                 Text("Без root Android не гарантирует VPN-трафик для клиентов точки доступа.")
                             }
                         }
