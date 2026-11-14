@@ -14,7 +14,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>VPNShare</AssemblyName>
     <RootNamespace>VPNShare.Desktop</RootNamespace>
-    <Version>2.0.5</Version>
+    <Version>2.0.6</Version>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
