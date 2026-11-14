@@ -25,6 +25,10 @@ jobs:
         shell: powershell
         run: ./tests/Smoke.ps1
 
+      - name: Integration check - launch hidden backend and fetch dashboard
+        shell: powershell
+        run: ./tests/BackendStartup.ps1
+
       - name: Publish Windows x64 desktop app
         shell: pwsh
         run: |
