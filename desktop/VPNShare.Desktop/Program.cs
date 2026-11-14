@@ -83,6 +83,7 @@ internal sealed class DashboardForm : Form
     private readonly NotifyIcon _tray;
     private readonly CancellationTokenSource _lifetime = new();
 
+    private ClientTrafficMonitor? _trafficMonitor;
     private Process? _backend;
     private string? _portFile;
     private string? _dashboardUrl;
@@ -155,6 +156,8 @@ internal sealed class DashboardForm : Form
 
         Shown += async (_, _) => await StartBackendAsync();
         WriteLog("VPN Share desktop started; log: " + _logPath);
+        _trafficMonitor = new ClientTrafficMonitor(_dataDirectory, WriteLog);
+        _trafficMonitor.Start();
     }
 
     private static Button NewButton(string title) => new()
@@ -456,6 +459,8 @@ internal sealed class DashboardForm : Form
     {
         _closingForReal = true;
         _lifetime.Cancel();
+        _trafficMonitor?.Dispose();
+        _trafficMonitor = null;
         StopBackend();
         _tray.Visible = false;
         Close();
