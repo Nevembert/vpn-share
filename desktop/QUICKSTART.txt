@@ -1,0 +1,22 @@
+VPN SHARE 2.0.0 preview 1 - WINDOWS 11 (x64)
+
+1. Extract the whole ZIP into a folder.
+2. Double-click VPNShare.exe (not Start.cmd or VPNShareWeb.ps1).
+3. Accept Windows UAC administrator permission. Required for ICS.
+4. The dashboard opens inside the application, without a PowerShell console.
+5. Configure adapters and Mobile Hotspot as usual.
+6. Closing the window minimizes to the system tray. To quit, choose Exit
+   in the tray menu or click "Выход" in the application.
+7. Use the "Диагностика" tab to review startup errors, or "Копировать отчёт"
+   to copy a troubleshooting report.
+8. Diagnostics logs: %LOCALAPPDATA%\VPNShare\logs
+9. Requires Microsoft Edge WebView2 Runtime (usually installed on Windows 11).
+   If missing: https://developer.microsoft.com/microsoft-edge/webview2/
+
+"Фоновая раздача" inside the dashboard prevents idle sleep when enabled.
+Win+L locks Windows but does not suspend the computer. Closing the laptop
+lid can still suspend the computer based on Windows power settings.
+
+This is an UNSIGNED PREVIEW, not a tested production release. Windows may show
+a SmartScreen warning. Do not override security warnings unless you trust
+this project and its published source code.
