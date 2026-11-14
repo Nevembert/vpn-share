@@ -5,6 +5,11 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $source = Join-Path $root 'VPNShareWeb.ps1'
 if (-not (Test-Path $source)) { throw 'VPNShareWeb.ps1 not found' }
+$bytes = [IO.File]::ReadAllBytes($source)
+if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+  throw 'VPNShareWeb.ps1 must be saved as UTF-8 with BOM for Windows PowerShell 5.1.'
+}
+Write-Host 'PASS: UTF-8 BOM (Windows PowerShell 5.1)' -ForegroundColor Green
 $code = Get-Content -LiteralPath $source -Raw -Encoding UTF8
 $tokens = $null
 $errors = $null
