@@ -1,8 +1,8 @@
-## VPN Share 2.0.0 preview 1 — Windows desktop
+## VPN Share 2.0.0 preview 2 — Windows desktop
 
-**Download:** `VPNShare-v2.0.0-preview.1-win-x64.zip` in Assets. Extract it and launch **VPNShare.exe** (not Start.cmd).
+**Download:** `VPNShare-v2.0.0-preview.2-win-x64.zip` in Assets. Extract it and launch **VPNShare.exe** (not Start.cmd).
 
-**What's new:** native Windows desktop window with embedded WebView2 dashboard, hidden PowerShell backend, automatic local port discovery, background mode via tray, restart, error journal and copyable diagnostics. PowerShell script is embedded in the executable and extracted with UTF-8 BOM on startup.
+**New in preview 2:** automatically discover hotspot clients by IP/MAC from Windows IPv4 neighbor table, auto-select a recently reachable client, or choose from a dropdown. Client activity is a reachability hint, **not** a per-IP throughput measurement. The displayed Wi-Fi Direct speed remains the total interface throughput.\n\n**What's new:** native Windows desktop window with embedded WebView2 dashboard, hidden PowerShell backend, automatic local port discovery, background mode via tray, restart, error journal and copyable diagnostics. PowerShell script is embedded in the executable and extracted with UTF-8 BOM on startup.
 
 **Requirements:** Windows 11 x64, Microsoft Edge WebView2 Runtime, administrator permission for ICS. Includes .NET 8 runtime (self-contained). VPN and Mobile Hotspot need to be set up separately.
 
