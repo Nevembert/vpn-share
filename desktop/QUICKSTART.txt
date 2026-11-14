@@ -1,4 +1,4 @@
-VPN SHARE 2.0.0 preview 1 - WINDOWS 11 (x64)
+VPN SHARE 2.0.0 preview 2 - WINDOWS 11 (x64)
 
 1. Extract the whole ZIP into a folder.
 2. Double-click VPNShare.exe (not Start.cmd or VPNShareWeb.ps1).
