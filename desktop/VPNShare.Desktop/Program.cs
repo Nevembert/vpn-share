@@ -189,7 +189,7 @@ internal sealed class DashboardForm : Form
         var explanation = new Label
         {
             Text = "Автозапуск Windows создаёт задачу планировщика с повышенными правами. " +
-                   "Не перемещайте VPNShare.exe после включения.\\n\\n" +
+                   "Не перемещайте VPNShare.exe после включения.\n\n" +
                    "Автоматическая настройка ICS срабатывает только при активном VPN и Wi-Fi Direct " +
                    "и сохранённом выборе адаптеров. Проверка раз в 30 секунд. " +
                    "Не включает сам мобильный хот-спот Windows и не запускает VPN. " +
@@ -257,7 +257,7 @@ internal sealed class DashboardForm : Form
             {
                 var identity = WindowsIdentity.GetCurrent().Name;
                 var code = RunTaskCommand("/create", "/f", "/tn", StartupTask,
-                    "/sc", "onlogon", "/ru", identity, "/rl", "highest",
+                    "/sc", "onlogon", "/ru", identity, "/rl", "highest", "/it",
                     "/tr", "\\\"" + exe + "\\\"");
                 if (code != 0) throw new InvalidOperationException("Не удалось создать задачу автозапуска (код " + code + ").");
             }
