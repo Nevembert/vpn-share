@@ -1,4 +1,5 @@
 ﻿#requires -Version 5.1
+param([switch]$NoBrowser, [string]$PortFile = '')
 # VPN Share Web - local-only Windows 11 dashboard
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -456,7 +457,10 @@ foreach ($candidate in 18761..18780) {
 if (-not $port) { throw 'Could not bind a localhost port (18761-18780).' }
 $url = ('http://127.0.0.1:{0}/' -f $port)
 Log ('Dashboard: ' + $url)
-Start-Process $url
+if ($PortFile) {
+  [IO.File]::WriteAllText($PortFile,[string]$port,(New-Object Text.UTF8Encoding($false)))
+}
+if (-not $NoBrowser) { Start-Process $url }
 try {
   $mainPending = $null
   $clientPending = $null
