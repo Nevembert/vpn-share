@@ -218,7 +218,7 @@ internal sealed class DashboardForm : Form
         // Never execute a script extracted into the user-writable Desktop or Downloads folder.
         // The launcher runs elevated; ProgramData is used for its private runtime directory.
         var runtime = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "VPNShare", "DesktopRuntime", "2.0.2");
+            "VPNShare", "DesktopRuntime", "2.0.3");
         Directory.CreateDirectory(runtime);
         var file = Path.Combine(runtime, "VPNShareWeb.ps1");
 
