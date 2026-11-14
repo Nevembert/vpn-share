@@ -45,9 +45,13 @@ internal sealed class PktMonSampler
         if (!Available) throw new FileNotFoundException("Windows pktmon.exe отсутствует.");
         var status = Run(5000, "status");
         if (status.exit != 0) throw new InvalidOperationException("Не удалось проверить состояние PktMon: " + status.output);
-        if (status.output.Contains("Running", StringComparison.OrdinalIgnoreCase) ||
-            status.output.Contains("Active", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("PktMon уже используется другим процессом; мониторинг не вмешивается.");
+        // "Not running" also contains "running"; never mistake an idle session for a busy one.
+        var state = status.output.ToLowerInvariant();
+        var explicitlyIdle = state.Contains("not running") || state.Contains("not active") ||
+            state.Contains("stopped") || state.Contains("не запущен") ||
+            state.Contains("не работает") || state.Contains("остановлен");
+        if (!explicitlyIdle)
+            throw new InvalidOperationException("Невозможно подтвердить, что PktMon свободен. Мониторинг не перехватывает чужую сессию: " + status.output.Trim());
 
         var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n =>
             Guid.TryParse(n.Id, out var id) && id == Guid.Parse(guid));
