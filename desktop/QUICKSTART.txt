@@ -1,4 +1,4 @@
-VPN SHARE 2.0.0 preview 3 - WINDOWS 11 (x64)
+VPN SHARE 2.0.0 preview 4 - WINDOWS 11 (x64)
 
 1. Extract the whole ZIP into a folder.
 2. Double-click VPNShare.exe (not Start.cmd or VPNShareWeb.ps1).
@@ -20,3 +20,4 @@ lid can still suspend the computer based on Windows power settings.
 This is an UNSIGNED PREVIEW, not a tested production release. Windows may show
 a SmartScreen warning. Do not override security warnings unless you trust
 this project and its published source code.
+\nPER-DEVICE SPEED: Install Npcap from https://npcap.com/#download with\nWinPcap API-compatible mode, then restart VPNShare.exe. This optional\npacket capture counts IPv4 bytes on the Wi-Fi Direct adapter. IPv6 and\nclient-to-client local traffic are excluded.\n
