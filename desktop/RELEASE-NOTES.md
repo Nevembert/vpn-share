@@ -1,8 +1,7 @@
-# VPN Share 2.0.0 preview 7
+# VPN Share 2.0.0 preview 8
 
-- Simplified dashboard: Overview, Devices and Tools sections.
-- New native Settings tab: opt-in Windows logon startup through an elevated interactive Scheduled Task.
-- Opt-in automatic ICS setup/recovery when saved VPN and Wi-Fi Direct adapters become active, checked every 30 seconds; no automatic Windows hotspot or VPN activation.
-- Preferences stored locally under %LOCALAPPDATA%/VPNShare/preferences.json.
-- No kill switch; hotspot recovery remains experimental and will not override unrelated ICS assignments.
-- Built-in Windows PktMon fallback retained.
+- Read-only diagnostic engine for network input, VPN routes, Wi-Fi Direct, ICS, client discovery, per-IP monitor and auto-repair failures.
+- Each issue has a stable code, severity, observed evidence, probable location and cause, repair instructions and a verification step.
+- Diagnostics appear under Devices and verification; refresh button runs checks again.
+- No automatic firewall, routing, VPN or ICS changes from diagnostics.
+- Settings and Windows logon startup from preview 7 retained.
