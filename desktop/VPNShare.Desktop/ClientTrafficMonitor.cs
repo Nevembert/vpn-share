@@ -145,7 +145,7 @@ internal sealed class ClientTrafficMonitor : IDisposable
 
     private void Capture(string guid, CancellationToken token, ref DateTime last)
     {
-        var device = @"\\Device\\NPF_{" + guid.ToUpperInvariant() + "}";
+        var device = @"\Device\NPF_{" + guid.ToUpperInvariant() + "}";
         var error = new byte[512];
         var handle = Native.pcap_open_live(device, 65535, 0, 250, error);
         if (handle == IntPtr.Zero)
