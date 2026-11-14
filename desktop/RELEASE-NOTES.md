@@ -1,1 +1,8 @@
-# VPN Share 2.0.0 preview 6\n\n- Built-in Windows PktMon fallback for per-IP IPv4 throughput; no additional software on the PC or clients required when PktMon is available.\n- Captures short ~5 second windows, converts ETL to pcapng locally, parses IP header/lengths, and deletes temporary captures.\n- Npcap remains supported when installed.\n- Experimental: PktMon is a system-wide diagnostic facility; if another capture is active the app should not take ownership. Wi-Fi Direct coverage and accuracy require Windows 11 device testing.\n- IPv6 and local client-to-client traffic are excluded.\n- No kill switch implemented.\n
+# VPN Share 2.0.0 preview 7
+
+- Simplified dashboard: Overview, Devices and Tools sections.
+- New native Settings tab: opt-in Windows logon startup through an elevated interactive Scheduled Task.
+- Opt-in automatic ICS setup/recovery when saved VPN and Wi-Fi Direct adapters become active, checked every 30 seconds; no automatic Windows hotspot or VPN activation.
+- Preferences stored locally under %LOCALAPPDATA%/VPNShare/preferences.json.
+- No kill switch; hotspot recovery remains experimental and will not override unrelated ICS assignments.
+- Built-in Windows PktMon fallback retained.
