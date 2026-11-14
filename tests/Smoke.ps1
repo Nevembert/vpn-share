@@ -34,7 +34,7 @@ Write-Host 'PASS: expected local dashboard and client listener guards present' -
 $match = [regex]::Match($code,'(?s)\$script:html\s*=\s*@''\r?\n(.*?)\r?\n''@')
 if (-not $match.Success) { throw 'Dashboard HTML here-string not found' }
 $html = $match.Groups[1].Value
-foreach ($id in @('path','speeds','speedTests','history','comparison','checkIp','enableClient','disableClient','awakeOn','awakeOff','awakeStatus','clientSelect','clientActivity','autoRepairStatus','autoRepairOn','autoRepairOff')) {
+foreach ($id in @('path','speeds','speedTests','history','comparison','checkIp','enableClient','disableClient','awakeOn','awakeOff','awakeStatus','clientSelect','clientActivity','autoRepairStatus','autoRepairOn','autoRepairOff','clientTraffic')) {
   if ($html -notmatch ('id="' + [regex]::Escape($id) + '"')) { throw ('Missing dashboard element: ' + $id) }
 }
 Write-Host 'PASS: expected dashboard elements exist' -ForegroundColor Green
