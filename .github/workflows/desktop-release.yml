@@ -50,7 +50,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VPNShare-v2.0.0-preview.10-win-x64
-          path: VPNShare-v2.0.0-preview.10-win-x64.zip
+          path: |
+            dist/VPNShare.exe
+            VPNShare-v2.0.0-preview.10-win-x64.zip
           if-no-files-found: error
 
       - name: Publish prerelease when build succeeds
@@ -65,5 +67,5 @@ jobs:
             Write-Host "Release $tag already exists; not silently replacing release binaries."
             exit 0
           }
-          gh release create $tag "VPNShare-v2.0.0-preview.10-win-x64.zip" --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "VPN Share 2.0.0 preview 10 (Windows x64)" --prerelease --notes-file desktop/RELEASE-NOTES.md
+          gh release create $tag "dist/VPNShare.exe" "VPNShare-v2.0.0-preview.10-win-x64.zip" --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "VPN Share 2.0.0 preview 10 (Windows x64)" --prerelease --notes-file desktop/RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw "GitHub prerelease creation failed" }
