@@ -16,6 +16,7 @@ internal sealed class ClientTrafficMonitor : IDisposable
     private readonly ConcurrentDictionary<string, Counters> _counters = new();
     private readonly string _output;
     private Task? _worker;
+    private readonly PktMonSampler _pktmon;
     private string _currentGuid = "";
     private byte[]? _subnetAddress;
     private byte[]? _subnetMask;
@@ -38,6 +39,7 @@ internal sealed class ClientTrafficMonitor : IDisposable
         _dataDir = dataDir;
         _log = log;
         _output = Path.Combine(dataDir, "client-traffic.json");
+        _pktmon = new PktMonSampler(dataDir, log);
         // Do not expose stale values from a previous session.
         try { File.Delete(_output); } catch { }
     }
@@ -73,16 +75,12 @@ internal sealed class ClientTrafficMonitor : IDisposable
             catch (DllNotFoundException)
             {
                 _state = "missing-npcap";
-                _detail = "Npcap не установлен. Установите Npcap с WinPcap API-compatible mode.";
-                WriteSnapshot(1);
-                if (token.WaitHandle.WaitOne(5000)) break;
+                CaptureWithPktMon(guid, token);
             }
             catch (EntryPointNotFoundException)
             {
                 _state = "missing-npcap";
-                _detail = "Отсутствует совместимый wpcap.dll (Npcap).";
-                WriteSnapshot(1);
-                if (token.WaitHandle.WaitOne(5000)) break;
+                CaptureWithPktMon(guid, token);
             }
             catch (Exception ex)
             {
@@ -94,6 +92,47 @@ internal sealed class ClientTrafficMonitor : IDisposable
             }
         }
         try { File.Delete(_output); } catch { }
+    }
+
+    private void CaptureWithPktMon(string guid, CancellationToken token)
+    {
+        if (!_pktmon.Available)
+        {
+            _state = "unavailable";
+            _detail = "Не найден ни Npcap, ни встроенный Windows PktMon.";
+            WriteSnapshot(1);
+            token.WaitHandle.WaitOne(5000);
+            return;
+        }
+        try
+        {
+            _state = "sampling";
+            _detail = "Встроенный PktMon: сбор пакетов на ПК, обновление примерно раз в 5 секунд.";
+            WriteSnapshot(1);
+            var started = DateTime.UtcNow;
+            var bytes = _pktmon.Sample(guid, 5, token);
+            var elapsed = Math.Max(0.1, (DateTime.UtcNow - started).TotalSeconds);
+            foreach (var (ip, totals) in bytes)
+            {
+                var counter = _counters.GetOrAdd(ip, _ => new Counters());
+                Interlocked.Add(ref counter.Rx, totals.rx);
+                Interlocked.Add(ref counter.Tx, totals.tx);
+                Interlocked.Add(ref counter.TotalRx, totals.rx);
+                Interlocked.Add(ref counter.TotalTx, totals.tx);
+            }
+            _state = "capturing";
+            _detail = "Windows PktMon: скорость IPv4 за последние " + elapsed.ToString("F1") +
+                " с; без установки дополнительного ПО.";
+            WriteSnapshot(elapsed);
+        }
+        catch (Exception ex)
+        {
+            _state = "error";
+            _detail = "PktMon: " + ex.Message;
+            _log("[pktmon] " + ex);
+            WriteSnapshot(1);
+            token.WaitHandle.WaitOne(5000);
+        }
     }
 
     private string ReadSelectedGuid()
