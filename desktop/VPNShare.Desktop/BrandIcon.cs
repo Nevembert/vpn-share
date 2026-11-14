@@ -4,6 +4,8 @@ using System.Runtime.InteropServices;
 
 namespace VPNShare.Desktop;
 
+// Original VPN Share mark: Wi-Fi, protected connection and device sharing.
+// A deliberately simplified rendering keeps the icon legible at 16x16.
 internal static class BrandIcon
 {
     [DllImport("user32.dll", SetLastError = true)]
@@ -17,41 +19,56 @@ internal static class BrandIcon
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Color.Transparent);
             using var background = new LinearGradientBrush(
-                new Rectangle(1, 1, 62, 62),
-                Color.FromArgb(15, 42, 83), Color.FromArgb(57, 22, 116), 45f);
-            using var rounded = new GraphicsPath();
-            rounded.AddArc(2, 2, 60, 60, 14, 180, 90);
-            rounded.AddArc(2, 2, 60, 60, 14, 270, 90);
-            rounded.AddArc(2, 2, 60, 60, 14, 0, 90);
-            rounded.AddArc(2, 2, 60, 60, 14, 90, 90);
-            rounded.CloseFigure();
-            g.FillPath(background, rounded);
-            using var rim = new Pen(Color.FromArgb(85, 211, 250), 2);
-            g.DrawPath(rim, rounded);
-            using var cyan = new Pen(Color.FromArgb(61, 235, 248), 4.5f)
+                new Rectangle(2, 2, 60, 60),
+                Color.FromArgb(6, 43, 85), Color.FromArgb(57, 15, 100), 25f);
+            using var tile = new GraphicsPath();
+            const int inset = 2, size = 60, corner = 15;
+            tile.AddArc(inset, inset, corner, corner, 180, 90);
+            tile.AddArc(inset + size - corner, inset, corner, corner, 270, 90);
+            tile.AddArc(inset + size - corner, inset + size - corner, corner, corner, 0, 90);
+            tile.AddArc(inset, inset + size - corner, corner, corner, 90, 90);
+            tile.CloseFigure();
+            g.FillPath(background, tile);
+            using var border = new Pen(Color.FromArgb(91, 221, 250), 2);
+            g.DrawPath(border, tile);
+
+            // Two high-contrast wireless arcs, rather than tiny lettering.
+            using var wifi = new Pen(Color.FromArgb(112, 245, 255), 4.5f)
                 { StartCap = LineCap.Round, EndCap = LineCap.Round };
-            g.DrawArc(cyan, 16, 9, 32, 24, 210, 120);
-            g.DrawArc(cyan, 22, 17, 20, 15, 210, 120);
-            g.FillEllipse(Brushes.Aqua, 30, 27, 4, 4);
+            g.DrawArc(wifi, 15, 9, 34, 25, 211, 118);
+            g.DrawArc(wifi, 22, 18, 20, 14, 211, 118);
+            using var dot = new SolidBrush(Color.FromArgb(122, 245, 255));
+            g.FillEllipse(dot, 30, 29, 4, 4);
+
+            // Shield is intentionally central and remains distinct in the tray.
             using var shield = new GraphicsPath();
             shield.AddPolygon(new[] {
-                new Point(32, 30), new Point(47, 36), new Point(45, 49),
-                new Point(32, 58), new Point(19, 49), new Point(17, 36)
+                new Point(32, 31), new Point(48, 36), new Point(46, 49),
+                new Point(32, 58), new Point(18, 49), new Point(16, 36)
             });
-            using var shieldBrush = new LinearGradientBrush(
-                new Rectangle(17, 30, 30, 28),
-                Color.FromArgb(18, 125, 211), Color.FromArgb(79, 42, 174), 60f);
-            g.FillPath(shieldBrush, shield);
-            using var edge = new Pen(Color.FromArgb(195, 250, 255), 2.5f);
-            g.DrawPath(edge, shield);
-            using var font = new Font("Segoe UI", 10, FontStyle.Bold, GraphicsUnit.Pixel);
-            using var white = new SolidBrush(Color.White);
-            var text = "VPN";
-            var size = g.MeasureString(text, font);
-            g.DrawString(text, font, white, 32 - size.Width / 2, 37);
+            using var fill = new LinearGradientBrush(
+                new Rectangle(16, 31, 32, 27),
+                Color.FromArgb(7, 123, 200), Color.FromArgb(111, 37, 175), 30f);
+            g.FillPath(fill, shield);
+            using var shieldBorder = new Pen(Color.FromArgb(210, 251, 255), 2.5f);
+            g.DrawPath(shieldBorder, shield);
+
+            // Three nodes indicate sharing, with no proprietary device silhouette.
+            using var line = new Pen(Color.White, 2.6f)
+                { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawLine(line, 28, 46, 36, 42);
+            g.DrawLine(line, 28, 46, 36, 51);
+            g.FillEllipse(Brushes.White, 24.5f, 42.5f, 7, 7);
+            g.FillEllipse(Brushes.White, 33.5f, 38.5f, 7, 7);
+            g.FillEllipse(Brushes.White, 33.5f, 47.5f, 7, 7);
         }
+
         var handle = bitmap.GetHicon();
-        try { using var temporary = Icon.FromHandle(handle); return (Icon)temporary.Clone(); }
+        try
+        {
+            using var temporary = Icon.FromHandle(handle);
+            return (Icon)temporary.Clone();
+        }
         finally { DestroyIcon(handle); }
     }
 }
