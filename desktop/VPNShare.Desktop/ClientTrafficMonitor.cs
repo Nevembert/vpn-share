@@ -178,8 +178,8 @@ internal sealed class ClientTrafficMonitor : IDisposable
                 var result = Native.pcap_next_ex(handle, out var header, out var packet);
                 if (result == 1 && header != IntPtr.Zero && packet != IntPtr.Zero)
                 {
-                    var caplen = Marshal.ReadInt32(header, 16);
-                    var wirelen = Marshal.ReadInt32(header, 20);
+                    var caplen = Marshal.ReadInt32(header, 8);
+                    var wirelen = Marshal.ReadInt32(header, 12);
                     if (caplen >= 34 && caplen <= 65535 && wirelen >= 34)
                         CountPacket(packet, caplen, wirelen);
                 }
