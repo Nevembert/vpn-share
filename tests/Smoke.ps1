@@ -20,7 +20,7 @@ if ($errors.Count -gt 0) {
 }
 Write-Host 'PASS: PowerShell syntax' -ForegroundColor Green
 $functions = @($ast.FindAll({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst]},$true) | ForEach-Object Name)
-foreach ($required in @('Adapters','Roles','Chosen','RoutesOn','BuildStatus','Configure','SaveSelection','TrafficSample','ClientResponse','ClientReport','StartClientListener','StopClientListener','SetKeepAwake','RefreshKeepAwake')) {
+foreach ($required in @('Adapters','Roles','Chosen','RoutesOn','BuildStatus','DiagnoseNetwork','Configure','SaveSelection','TrafficSample','ClientResponse','ClientReport','StartClientListener','StopClientListener','SetKeepAwake','RefreshKeepAwake')) {
   if ($required -notin $functions) { throw ('Missing function: ' + $required) }
 }
 Write-Host 'PASS: required PowerShell functions exist' -ForegroundColor Green
@@ -34,10 +34,11 @@ Write-Host 'PASS: expected local dashboard and client listener guards present' -
 $match = [regex]::Match($code,'(?s)\$script:html\s*=\s*@''\r?\n(.*?)\r?\n''@')
 if (-not $match.Success) { throw 'Dashboard HTML here-string not found' }
 $html = $match.Groups[1].Value
-foreach ($id in @('path','speeds','speedTests','history','comparison','checkIp','enableClient','disableClient','awakeOn','awakeOff','awakeStatus','clientSelect','clientActivity','autoRepairStatus','autoRepairOn','autoRepairOff')) {
+foreach ($id in @('path','speeds','speedTests','history','comparison','checkIp','enableClient','disableClient','awakeOn','awakeOff','awakeStatus','clientSelect','clientActivity','diagnoseNow','issueSummary','issueList','autoRepairStatus','autoRepairOn','autoRepairOff')) {
   if ($html -notmatch ('id="' + [regex]::Escape($id) + '"')) { throw ('Missing dashboard element: ' + $id) }
 }
-Write-Host 'PASS: expected dashboard elements exist' -ForegroundColor Green
+foreach ($issueCode in @('NET-101','NET-102','VPN-201','VPN-202','WIFI-301','WIFI-302','ICS-401','CLIENT-501','MON-601','ICS-402')) { if ($code -notmatch $issueCode) { throw ('Missing diagnostic code: ' + $issueCode) } }
+Write-Host 'PASS: diagnostic codes and dashboard elements exist' -ForegroundColor Green
 $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) {
   $js = [regex]::Match($html,'(?s)<script>(.*?)</script>')
