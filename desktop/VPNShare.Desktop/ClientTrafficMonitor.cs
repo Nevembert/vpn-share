@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
@@ -16,6 +17,9 @@ internal sealed class ClientTrafficMonitor : IDisposable
     private readonly string _output;
     private Task? _worker;
     private string _currentGuid = "";
+    private byte[]? _subnetAddress;
+    private byte[]? _subnetMask;
+    private string _hostAddress = "";
     private string _state = "waiting";
     private string _detail = "Ожидание выбора Wi-Fi Direct.";
     private sealed class Counters
@@ -50,6 +54,7 @@ internal sealed class ClientTrafficMonitor : IDisposable
             {
                 _currentGuid = guid;
                 _counters.Clear();
+                ResolveHotspotSubnet(guid);
                 _state = "waiting";
                 _detail = "Ожидание выбранного адаптера Wi-Fi Direct.";
             }
@@ -105,6 +110,39 @@ internal sealed class ClientTrafficMonitor : IDisposable
         catch { return ""; }
     }
 
+    private void ResolveHotspotSubnet(string guid)
+    {
+        _subnetAddress = null;
+        _subnetMask = null;
+        _hostAddress = "";
+        try
+        {
+            var nic = NetworkInterface.GetAllNetworkInterfaces()
+                .FirstOrDefault(n => Guid.TryParse(n.Id, out var id) &&
+                    id == Guid.Parse(guid));
+            var address = nic?.GetIPProperties().UnicastAddresses.FirstOrDefault(a =>
+                a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                a.IPv4Mask != null);
+            if (address == null) return;
+            _subnetAddress = address.Address.GetAddressBytes();
+            _subnetMask = address.IPv4Mask.GetAddressBytes();
+            _hostAddress = address.Address.ToString();
+        }
+        catch (Exception ex) { _log("[capture subnet] " + ex.Message); }
+    }
+
+    private bool IsHotspotClient(string ip)
+    {
+        if (_subnetAddress == null || _subnetMask == null || ip == _hostAddress ||
+            !IPAddress.TryParse(ip, out var address)) return false;
+        var bytes = address.GetAddressBytes();
+        if (bytes.Length != 4) return false;
+        for (var i = 0; i < 4; i++)
+            if ((bytes[i] & _subnetMask[i]) != (_subnetAddress[i] & _subnetMask[i]))
+                return false;
+        return true;
+    }
+
     private void Capture(string guid, CancellationToken token, ref DateTime last)
     {
         var device = @"\\Device\\NPF_{" + guid.ToUpperInvariant() + "}";
@@ -131,7 +169,7 @@ internal sealed class ClientTrafficMonitor : IDisposable
                 token.WaitHandle.WaitOne(3000);
                 return;
             }
-            _state = "capturing";
+            if (_subnetMask == null)\n            {\n                _state = "waiting";\n                _detail = "Не удалось определить IPv4-подсеть Wi-Fi Direct.";\n                WriteSnapshot(1);\n                token.WaitHandle.WaitOne(3000);\n                return;\n            }\n            _state = "capturing";
             _detail = "Npcap: учёт IPv4-пакетов на Wi-Fi Direct до NAT. Скорость приблизительная.";
             _log("[capture] Started on " + device);
             last = DateTime.UtcNow;
@@ -187,19 +225,19 @@ internal sealed class ClientTrafficMonitor : IDisposable
         if (payloadLength == 0) return;
         var bytes = Math.Min(payloadLength, Math.Max(0, wireLength - offset));
         if (bytes <= 0) return;
-        if (IsPrivateClient(source) && !IsPrivateClient(destination))
+        if (IsHotspotClient(source) && !IsHotspotClient(destination))
         {
             var counters = _counters.GetOrAdd(source, _ => new Counters());
             Interlocked.Add(ref counters.Tx, bytes);
             Interlocked.Add(ref counters.TotalTx, bytes);
         }
-        else if (IsPrivateClient(destination) && !IsPrivateClient(source))
+        else if (IsHotspotClient(destination) && !IsHotspotClient(source))
         {
             var counters = _counters.GetOrAdd(destination, _ => new Counters());
             Interlocked.Add(ref counters.Rx, bytes);
             Interlocked.Add(ref counters.TotalRx, bytes);
         }
-        else if (IsPrivateClient(source) && IsPrivateClient(destination))
+        else if (IsHotspotClient(source) && IsHotspotClient(destination))
         {
             // Local traffic is ambiguous without the hotspot subnet. Do not guess.
         }
@@ -211,15 +249,6 @@ internal sealed class ClientTrafficMonitor : IDisposable
             Marshal.ReadByte(ptr, offset), Marshal.ReadByte(ptr, offset + 1),
             Marshal.ReadByte(ptr, offset + 2), Marshal.ReadByte(ptr, offset + 3)
         }).ToString();
-
-    private static bool IsPrivateClient(string ip)
-    {
-        if (!IPAddress.TryParse(ip, out var address)) return false;
-        var b = address.GetAddressBytes();
-        return b.Length == 4 && (b[0] == 10 ||
-            (b[0] == 172 && b[1] is >= 16 and <= 31) ||
-            (b[0] == 192 && b[1] == 168));
-    }
 
     private void WriteSnapshot(double seconds)
     {
