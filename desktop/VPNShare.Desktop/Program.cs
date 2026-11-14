@@ -5,6 +5,8 @@ using System.Text;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using System.Windows.Forms;
+using System.Text.Json;
+using System.Security.Principal;
 
 namespace VPNShare.Desktop;
 
@@ -84,6 +86,10 @@ internal sealed class DashboardForm : Form
     private readonly CancellationTokenSource _lifetime = new();
 
     private ClientTrafficMonitor? _trafficMonitor;
+    private CheckBox? _startupBox;
+    private CheckBox? _hotspotBox;
+    private Label? _settingsMessage;
+    private const string StartupTask = @"\VPNShare\StartAtLogon";
     private Process? _backend;
     private string? _portFile;
     private string? _dashboardUrl;
@@ -119,7 +125,9 @@ internal sealed class DashboardForm : Form
         var restart = NewButton("Перезапустить");
         restart.Click += async (_, _) => await StartBackendAsync();
         var logButton = NewButton("Диагностика");
-        logButton.Click += (_, _) => _tabs.SelectedIndex = 1;
+        logButton.Click += (_, _) => _tabs.SelectedIndex = 2;
+        var settingsButton = NewButton("Настройки");
+        settingsButton.Click += (_, _) => _tabs.SelectedIndex = 1;
         var copyButton = NewButton("Копировать отчёт");
         copyButton.Click += (_, _) => CopyReport();
         var folderButton = NewButton("Открыть логи");
@@ -127,20 +135,24 @@ internal sealed class DashboardForm : Form
         var exitButton = NewButton("Выход");
         exitButton.Click += (_, _) => ExitApplication();
 
-        bar.Controls.AddRange(new Control[] { restart, logButton, copyButton, folderButton, exitButton, _status });
+        bar.Controls.AddRange(new Control[] { restart, settingsButton, logButton, copyButton, folderButton, exitButton, _status });
 
         var dashboardTab = new TabPage("Панель") { BackColor = Color.FromArgb(10, 18, 33) };
         dashboardTab.Controls.Add(_browser);
+        var settingsTab = new TabPage("Настройки") { BackColor = Color.FromArgb(12, 20, 36) };
+        settingsTab.Controls.Add(BuildSettingsPanel());
         var logTab = new TabPage("Диагностика") { BackColor = Color.FromArgb(12, 20, 36) };
         logTab.Controls.Add(_diagnostics);
         _tabs.TabPages.Add(dashboardTab);
+        _tabs.TabPages.Add(settingsTab);
         _tabs.TabPages.Add(logTab);
         Controls.Add(_tabs);
         Controls.Add(bar);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Открыть VPN Share", null, (_, _) => RestoreWindow());
-        menu.Items.Add("Диагностика", null, (_, _) => { RestoreWindow(); _tabs.SelectedIndex = 1; });
+        menu.Items.Add("Настройки", null, (_, _) => { RestoreWindow(); _tabs.SelectedIndex = 1; });
+        menu.Items.Add("Диагностика", null, (_, _) => { RestoreWindow(); _tabs.SelectedIndex = 2; });
         menu.Items.Add("Перезапустить сервер", null, async (_, _) => await StartBackendAsync());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Завершить VPN Share", null, (_, _) => ExitApplication());
@@ -158,6 +170,115 @@ internal sealed class DashboardForm : Form
         WriteLog("VPN Share desktop started; log: " + _logPath);
         _trafficMonitor = new ClientTrafficMonitor(_dataDirectory, WriteLog);
         _trafficMonitor.Start();
+    }
+
+    private Control BuildSettingsPanel()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
+            WrapContents = false, AutoScroll = true, Padding = new Padding(22),
+            BackColor = Color.FromArgb(12, 20, 36)
+        };
+        var heading = new Label { Text = "Настройки VPN Share", Font = new Font("Segoe UI", 17, FontStyle.Bold),
+            ForeColor = Color.White, AutoSize = true, Margin = new Padding(4, 5, 4, 22) };
+        _startupBox = new CheckBox { Text = "Запускать VPN Share при входе в Windows",
+            ForeColor = Color.White, AutoSize = true, Margin = new Padding(4, 8, 4, 10) };
+        _hotspotBox = new CheckBox { Text = "Автоматически настраивать ICS при включении точки доступа",
+            ForeColor = Color.White, AutoSize = true, Margin = new Padding(4, 8, 4, 10) };
+        var explanation = new Label
+        {
+            Text = "Автозапуск Windows создаёт задачу планировщика с повышенными правами. " +
+                   "Не перемещайте VPNShare.exe после включения.\\n\\n" +
+                   "Автоматическая настройка ICS срабатывает только при активном VPN и Wi-Fi Direct " +
+                   "и сохранённом выборе адаптеров. Проверка раз в 30 секунд. " +
+                   "Не включает сам мобильный хот-спот Windows и не запускает VPN. " +
+                   "Функция экспериментальная, не является Kill Switch.",
+            ForeColor = Color.FromArgb(176, 195, 219), AutoSize = false,
+            Width = 650, Height = 145, Margin = new Padding(4, 10, 4, 14)
+        };
+        var save = NewButton("Сохранить настройки");
+        save.Click += async (_, _) => await SaveSettingsAsync();
+        _settingsMessage = new Label { Text = "", ForeColor = Color.FromArgb(136, 222, 184),
+            AutoSize = true, Margin = new Padding(4, 12, 4, 0) };
+        panel.Controls.AddRange(new Control[] { heading, _startupBox, _hotspotBox, explanation, save, _settingsMessage });
+        panel.HandleCreated += (_, _) => LoadSettings();
+        return panel;
+    }
+
+    private string PreferencesFile => Path.Combine(_dataDirectory, "preferences.json");
+
+    private void LoadSettings()
+    {
+        if (_startupBox == null || _hotspotBox == null) return;
+        try
+        {
+            var query = RunTaskCommand("/query", "/tn", StartupTask);
+            _startupBox.Checked = query == 0;
+        }
+        catch (Exception ex) { WriteLog("[settings query] " + ex.Message); }
+        try
+        {
+            if (File.Exists(PreferencesFile))
+            {
+                using var json = JsonDocument.Parse(File.ReadAllText(PreferencesFile));
+                _hotspotBox.Checked = json.RootElement.TryGetProperty("autoHotspot", out var value) &&
+                    value.ValueKind == JsonValueKind.True;
+            }
+        }
+        catch (Exception ex) { WriteLog("[settings read] " + ex.Message); }
+    }
+
+    private static int RunTaskCommand(params string[] args)
+    {
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "schtasks.exe"))
+        {
+            UseShellExecute = false, CreateNoWindow = true
+        };
+        foreach (var arg in args) process.StartInfo.ArgumentList.Add(arg);
+        process.Start();
+        if (!process.WaitForExit(12000))
+        {
+            try { process.Kill(true); } catch { }
+            throw new TimeoutException("Windows Task Scheduler не ответил.");
+        }
+        return process.ExitCode;
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        if (_startupBox == null || _hotspotBox == null || _settingsMessage == null) return;
+        try
+        {
+            var exe = Environment.ProcessPath ?? throw new InvalidOperationException("Путь приложения неизвестен.");
+            if (_startupBox.Checked)
+            {
+                var identity = WindowsIdentity.GetCurrent().Name;
+                var code = RunTaskCommand("/create", "/f", "/tn", StartupTask,
+                    "/sc", "onlogon", "/ru", identity, "/rl", "highest",
+                    "/tr", "\\\"" + exe + "\\\"");
+                if (code != 0) throw new InvalidOperationException("Не удалось создать задачу автозапуска (код " + code + ").");
+            }
+            else if (RunTaskCommand("/query", "/tn", StartupTask) == 0)
+            {
+                if (RunTaskCommand("/delete", "/f", "/tn", StartupTask) != 0)
+                    throw new InvalidOperationException("Не удалось удалить задачу автозапуска.");
+            }
+            var json = JsonSerializer.Serialize(new { autoHotspot = _hotspotBox.Checked });
+            var tmp = PreferencesFile + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, PreferencesFile, true);
+            _settingsMessage.Text = "Настройки сохранены. Перезапуск локального сервера…";
+            await StartBackendAsync();
+            _settingsMessage.Text = "Настройки сохранены.";
+        }
+        catch (Exception ex)
+        {
+            WriteLog("[settings] " + ex);
+            _settingsMessage.Text = "Ошибка: " + ex.Message;
+        }
     }
 
     private static Button NewButton(string title) => new()
