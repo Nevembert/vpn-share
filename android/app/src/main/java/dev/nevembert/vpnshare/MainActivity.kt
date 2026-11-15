@@ -23,7 +23,8 @@ class MainActivity : ComponentActivity() {
                 var rootProbe by remember { mutableStateOf<RootProbe?>(null) }
                 var snapshot by remember { mutableStateOf(Diagnostics.collect(this, false)) }
                 var inventory by remember { mutableStateOf(NetworkInspector.collect(this)) }
-                fun refresh() { snapshot = Diagnostics.collect(this, rootMode); inventory = NetworkInspector.collect(this) }
+                var dns by remember { mutableStateOf(DnsInspector.collect(this)) }
+                fun refresh() { snapshot = Diagnostics.collect(this, rootMode); inventory = NetworkInspector.collect(this); dns = DnsInspector.collect(this) }
                 Column(Modifier.fillMaxSize().padding(16.dp)) {
                     Text("VPN Share", style = MaterialTheme.typography.headlineMedium)
                     Spacer(Modifier.height(12.dp))
@@ -78,6 +79,14 @@ class MainActivity : ComponentActivity() {
                                 inventory.routes.forEach { Text(it, Modifier.padding(vertical = 4.dp)) }
                                 Spacer(Modifier.height(12.dp))
                                 inventory.observations.forEach { Text(it) }
+                                Spacer(Modifier.height(12.dp))
+                                Text("DNS-серверы", style = MaterialTheme.typography.titleMedium)
+                                if (dns.entries.isEmpty()) Text("DNS-серверы недоступны")
+                                dns.entries.forEach { entry ->
+                                    Text("${entry.network} · ${entry.interfaceName}: " +
+                                        entry.servers.joinToString(", ").ifBlank { "не указаны" })
+                                }
+                                dns.notes.forEach { Text(it, Modifier.padding(top = 6.dp)) }
                             }
                             else -> {
                                 Text("Возможности", style = MaterialTheme.typography.titleLarge)
