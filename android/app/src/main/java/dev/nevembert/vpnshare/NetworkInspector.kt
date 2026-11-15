@@ -59,7 +59,7 @@ object NetworkInspector {
                 val caps: NetworkCapabilities = cm.getNetworkCapabilities(network) ?: continue
                 val props: LinkProperties = cm.getLinkProperties(network) ?: continue
                 val kind = if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) "VPN" else "network"
-                for (route in props.routes) routes += "$kind: ${route.destination} via ${route.gateway ?: "direct"} dev ${route.interfaceName ?: props.interfaceName ?: "?"}"
+                for (route in props.routes) routes += "$kind: ${route.destination} via ${route.gateway ?: "direct"} dev ${props.interfaceName ?: "?"}"
             }
         } catch (e: Exception) {
             notes += "Маршруты Android API недоступны: ${e.javaClass.simpleName}"
