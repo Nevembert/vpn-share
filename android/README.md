@@ -13,6 +13,6 @@ No extra software is installed on hotspot clients. Android network checks run lo
 
 ## Roadmap
 1. Root capability probe with explicit consent and command timeout (implemented; requires device validation).
-2. Read-only interface and Android API route inventory (implemented; OEM dependent). DNS, tethering and NAT inventory still pending.
+2. Read-only interface and Android API route inventory (implemented; OEM dependent). DNS inventory implemented via public Android API; tethering and NAT inventory still pending.
 3. Safe, transactional root forwarding with rollback, VPN disconnect fail-closed behavior and IPv6 policy.
 4. Per-client counters and verified APK release pipeline.
